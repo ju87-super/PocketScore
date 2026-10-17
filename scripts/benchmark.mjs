@@ -27,13 +27,15 @@ if (sourceRef) {
 await build({ root: sourceRoot, configFile: false, plugins: [react()], base: '/', logLevel: 'error',
   build: { outDir, emptyOutDir: true, rollupOptions: { input: resolve(sourceRoot, 'tests/performance/index.html') } } })
 const server = await preview({ root: sourceRoot, configFile: false, base: '/', build: { outDir }, preview: { host: '127.0.0.1', port: 4175, strictPort: true } })
-const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium' })
-const output = { label, commit: execFileSync('git', ['rev-parse', sourceRef || 'HEAD'], { encoding: 'utf8' }).trim(), browser: browser.version(), viewport: { width: 1280, height: 900 }, rounds: [] }
+let browser
 try {
+  browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium' })
+  const output = { label, commit: execFileSync('git', ['rev-parse', sourceRef || 'HEAD'], { encoding: 'utf8' }).trim(), browser: browser.version(), viewport: { width: 1280, height: 900 }, rounds: [] }
   for (let round = 0; round < 3; round++) {
     for (const count of [4, 16, 32, 64]) {
       const page = await browser.newPage({ viewport: output.viewport })
-      page.on('pageerror', error => { throw error })
+      const errors = []
+      page.on('pageerror', error => errors.push(error.message))
       await page.goto('http://127.0.0.1:4175/tests/performance/index.html')
       await page.waitForFunction(() => window.benchmark)
       const cdp = await page.context().newCDPSession(page)
@@ -54,6 +56,7 @@ try {
       }
       await page.evaluate(() => window.benchmark.unmount())
       await cdp.send('HeapProfiler.collectGarbage')
+      if (errors.length) throw new Error(errors.join('\n'))
       output.rounds.push({ round, ...result, heapBefore, heapAfter, steadyHeaps, heapUnmounted: await heap() })
       console.log(`${label}: round ${round + 1}, ${count} measures, pitch ${result.updates.pitch.median.toFixed(2)}ms, cursor ${result.updates.cursor.median.toFixed(2)}ms`)
       await page.close()
@@ -66,4 +69,4 @@ try {
   }
   await mkdir('.cache/performance-results', { recursive: true })
   await writeFile(`.cache/performance-results/${label}.json`, JSON.stringify(output, null, 2))
-} finally { await browser.close(); await new Promise(resolve => server.httpServer.close(resolve)) }
+} finally { await browser?.close(); await new Promise(resolve => server.httpServer.close(resolve)) }

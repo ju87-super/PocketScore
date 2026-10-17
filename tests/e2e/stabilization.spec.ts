@@ -11,6 +11,7 @@ async function beginDrag(page: Page) {
   await page.mouse.down()
   await page.mouse.move(x, y - 20)
   await expect(page.getByTestId('selection-status')).toContainText('E4')
+  return { x, y }
 }
 
 let errors: string[]
@@ -42,6 +43,19 @@ test('releases pointer capture immediately on Escape and cancels repeated drags 
     await page.mouse.up()
     await expect(page.getByTestId('selection-status')).toContainText('C4')
   }
+  await expect(page.getByRole('button', { name: '실행 취소' })).toBeDisabled()
+})
+
+test('deduplicates a burst of pointer moves within one pitch step and commits one edit', async ({ page }) => {
+  await page.locator('[data-event-id="m1-e1"]').click()
+  const { x, y } = await beginDrag(page)
+  const target = await page.locator('[data-event-id="m1-e1"]').elementHandle()
+  await page.mouse.move(x, y - 24, { steps: 20 })
+  expect(await target!.evaluate(el => el.isConnected)).toBe(true)
+  await page.mouse.up()
+  await expect(page.getByTestId('selection-status')).toContainText('E4')
+  await page.getByRole('button', { name: '실행 취소' }).click()
+  await expect(page.getByTestId('selection-status')).toContainText('C4')
   await expect(page.getByRole('button', { name: '실행 취소' })).toBeDisabled()
 })
 

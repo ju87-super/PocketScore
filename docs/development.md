@@ -53,7 +53,8 @@ npm run test:e2e
 PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium npm run test:e2e
 ```
 
-테스트가 자체적으로 4173 포트의 미리보기 서버를 시작·종료합니다. 같은 포트의
+테스트가 자체적으로 4173 포트의 앱 미리보기와 4176 포트의 별도 긴 악보 fixture를
+빌드·시작·종료합니다. fixture는 제품 번들/라우트에 포함되지 않습니다. 같은 포트의
 서버가 이미 실행 중이면 먼저 종료하세요. Chromium의 마우스 입력, 펜·터치 에뮬레이션,
 스크롤 모드, 드래그 취소, 좁은 화면 및 실제 SVG 렌더링을 검사합니다.
 실제 장치 검증을 대신하지 않습니다.
@@ -123,3 +124,19 @@ Vite의 `base`는 `/PocketScore/`입니다. 배포할 산출물은 `npm run buil
 실제 Galaxy Tab의 S Pen·손가락 동작과 MuseScore GUI 호환성은 **미검증**입니다.
 음표 삽입·삭제, 다성부 UI, 재생·음원 엔진, 저장, MusicXML, 오프라인/PWA는
 이번 범위에 포함하지 않습니다.
+
+## 안정화 감사 및 성능 재현
+
+[Stabilization 0.1 보고서](stabilization-0.1.md)에 결함 재현, 수정, 회귀 검사와
+[성능 측정 결과](performance/stabilization-results.md)를 기록합니다.
+
+```sh
+npm run build
+node scripts/benchmark.mjs baseline 8341e9a
+node scripts/benchmark.mjs optimized
+```
+
+벤치마크는 테스트/빌드와 동시에 실행하지 않습니다. 기준 ref는 `git archive`로
+`.cache`에 추출하며 작업 중 소스나 Git 브랜치를 바꾸지 않습니다. 4/16/32/64마디를
+같은 Chromium/viewport에서 측정하고 결과를 `.cache/performance-results/`에 저장합니다.
+제품의 기본 악보는 4마디로 유지합니다. benchmark 서버는 4175 포트를 사용합니다.

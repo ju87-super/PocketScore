@@ -49,7 +49,7 @@ async function run(count: number, steps = 12) {
   const taskStart = longTasks.length
   let worstFrame = 0
   let previousRAF: number | null = null
-  let frameRequest = 0
+  let frameRequest: number
   const trackFrame = (timestamp: number) => {
     if (previousRAF !== null) worstFrame = Math.max(worstFrame, timestamp - previousRAF)
     previousRAF = timestamp

@@ -1,0 +1,60 @@
+{
+  "browser": "154.0.8037.57",
+  "measures": 64,
+  "records": [
+    {
+      "edits": 0,
+      "heapBytes": 3743348,
+      "history": 0,
+      "nodes": 2308
+    },
+    {
+      "edits": 200,
+      "heapBytes": 4329232,
+      "history": 100,
+      "nodes": 2308
+    },
+    {
+      "edits": 400,
+      "heapBytes": 4402060,
+      "history": 100,
+      "nodes": 2308
+    },
+    {
+      "edits": 600,
+      "heapBytes": 4552272,
+      "history": 100,
+      "nodes": 2308
+    },
+    {
+      "edits": 800,
+      "heapBytes": 4565144,
+      "history": 100,
+      "nodes": 2308
+    },
+    {
+      "edits": 1000,
+      "heapBytes": 4583336,
+      "history": 100,
+      "nodes": 2308
+    },
+    {
+      "edits": 1200,
+      "heapBytes": 4585204,
+      "history": 100,
+      "nodes": 2308
+    },
+    {
+      "edits": 1400,
+      "heapBytes": 4586788,
+      "history": 100,
+      "nodes": 2308
+    },
+    {
+      "edits": 1600,
+      "heapBytes": 4592648,
+      "history": 100,
+      "nodes": 2308
+    }
+  ]
+}
