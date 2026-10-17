@@ -40,6 +40,8 @@ h1 { margin: 0; font-size: 1.6rem; letter-spacing: -.05em; }
 .notation svg * { pointer-events: none; }
 .notation svg .event-target { pointer-events: all; }
 .event-target { fill: transparent; stroke: transparent; stroke-width: 2px; cursor: grab; touch-action: none; }
+.notation .selected-note text { fill: #185e99; }
+.notation .selected-note path { stroke: #185e99; }
 .event-target.selected { fill: #185e9910; stroke: #185e99; }
 .score-surface[data-editing="false"] .event-target { pointer-events: none; touch-action: auto; }
 .selection-status { display: block; padding: .75rem .25rem .25rem; font-size: .9rem; }

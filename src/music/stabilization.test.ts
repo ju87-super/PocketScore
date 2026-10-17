@@ -62,6 +62,17 @@ describe('all key/meter combinations', () => {
 })
 
 describe('deterministic adversarial edit sequences', () => {
+  it('keeps a selected split rest valid and restores its original duration on undo', () => {
+    const rest = { ...first, eventId: 'm1-rest' }
+    const before: EditorState = { ...createEditor(), present: { score: tinyScore(), selection: rest } }
+    const next = editorReducer(before, { type: 'timeSignature', time: '3/8' })
+    expect(next.present.selection).toEqual(rest)
+    expect(locate(next.present.score, rest).event).toMatchObject({ start: fraction(1, 4), duration: fraction(1, 8) })
+    expect(validateScore(next.present.score)).toEqual([])
+    expect(editorReducer(next, { type: 'undo' }).present).toEqual(before.present)
+    expect(editorReducer(editorReducer(next, { type: 'undo' }), { type: 'redo' }).present).toEqual(next.present)
+  })
+
   it('keeps all IDs, notes and onset invariants through seeded edits, rejection and undo/redo', () => {
     let seed = 0x5c0ae
     const random = (n: number) => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed % n }

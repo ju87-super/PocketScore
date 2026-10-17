@@ -1,9 +1,8 @@
-import { useReducer } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
-import ScoreCanvas from '../../src/editor/ScoreCanvas'
-import { createEditor, editorReducer } from '../../src/editor/state'
+import { Fixture } from './Fixture'
 import type { Action, EditorState } from '../../src/editor/state'
+import type { Score } from '../../src/music/score'
 import { validateScore } from '../../src/music/score'
 import { fraction } from '../../src/music/rational'
 import { renderScore } from '../../src/notation/renderScore'
@@ -13,15 +12,8 @@ import '../../src/styles.css'
 let current: EditorState
 let dispatch: (action: Action) => void
 const root = createRoot(document.getElementById('root')!)
-const first = { measureId: 'm1', voiceId: 'v1', eventId: 'm1-e1' }
-function Fixture({ count }: { count: number }) {
-  const [state, send] = useReducer(editorReducer, count, n => ({ ...createEditor(), present: { score: longScore(n), selection: first } }))
-  current = state
-  dispatch = send
-  const errors = validateScore(state.present.score)
-  if (errors.length) throw new Error(errors.join(' '))
-  return <ScoreCanvas {...state.present} editing dispatch={send} />
-}
+const publish = (state: EditorState, send: (action: Action) => void) => { current = state; dispatch = send }
+
 const frame = () => new Promise<number>(resolve => requestAnimationFrame(resolve))
 const summary = (values: number[]) => {
   const sorted = [...values].sort((a, b) => a - b)
@@ -30,12 +22,12 @@ const summary = (values: number[]) => {
 const longTasks: number[] = []
 new PerformanceObserver(list => { longTasks.push(...list.getEntries().map(entry => entry.duration)) }).observe({ type: 'longtask' })
 
-export async function run(count: number, steps = 12) {
+async function run(count: number, steps = 12) {
   await document.fonts.ready
   const initial: number[] = []
   for (let i = 0; i < 5; i++) {
     const start = performance.now()
-    flushSync(() => root.render(<Fixture key={`${count}-${i}`} count={count} />))
+    flushSync(() => root.render(<Fixture key={`${count}-${i}`} count={count} publish={publish} />))
     document.querySelector('svg')!.getBoundingClientRect()
     if (i > 0) initial.push(performance.now() - start)
     await frame()
@@ -92,5 +84,20 @@ export async function run(count: number, steps = 12) {
     domNodes: document.querySelectorAll('*').length, svgNodes: document.querySelectorAll('svg *').length,
     longTasks: longTasks.slice(taskStart), worstFrameMs: worstFrame }
 }
-export function unmount() { flushSync(() => root.unmount()); document.getElementById('raw')!.replaceChildren() }
+function unmount() { flushSync(() => root.unmount()); document.getElementById('raw')!.replaceChildren() }
 Object.assign(window, { benchmark: { run, unmount } })
+
+let serial = 0
+Object.assign(window, { fixture: {
+  mount: (count: number, score?: Score) => flushSync(() => root.render(<Fixture key={`fixture-${serial++}`} count={count} score={score} publish={publish} />)),
+  act: (action: Action) => flushSync(() => dispatch(action)),
+  state: () => current,
+  freshSVG: () => {
+    const container = document.createElement('div')
+    document.getElementById('raw')!.replaceChildren(container)
+    renderScore(container, current.present.score, current.present.selection, document.querySelector('.score-surface')!.clientWidth)
+    const result = container.querySelector('svg')!.outerHTML
+    container.remove()
+    return result
+  },
+} })

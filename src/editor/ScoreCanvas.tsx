@@ -3,12 +3,12 @@ import type { Dispatch, KeyboardEvent, PointerEvent } from 'react'
 import { locate } from '../music/score'
 import type { Score, Selection } from '../music/score'
 import type { Rational } from '../music/rational'
-import { renderScore } from '../notation/renderScore'
+import { disposeScoreRenderer, renderScore } from '../notation/renderScore'
 import { draggedDuration, gestureAxis, pitchSteps } from './gesture'
 import type { Axis } from './gesture'
 import type { Action } from './state'
 
-type Drag = { pointerId: number; x: number; y: number; axis: Axis | null; duration: Rational }
+type Drag = { pointerId: number; x: number; y: number; axis: Axis | null; duration: Rational; lastPreview: string }
 type Props = { score: Score; selection: Selection | null; editing: boolean; dispatch: Dispatch<Action> }
 
 export default function ScoreCanvas({ score, selection, editing, dispatch }: Props) {
@@ -27,6 +27,7 @@ export default function ScoreCanvas({ score, selection, editing, dispatch }: Pro
   }, [dispatch])
 
   useEffect(() => {
+    const container = notation.current!
     const loseFocus = () => cancel()
     const visibility = () => { if (document.hidden) cancel() }
     window.addEventListener('blur', loseFocus)
@@ -35,26 +36,31 @@ export default function ScoreCanvas({ score, selection, editing, dispatch }: Pro
       window.removeEventListener('blur', loseFocus)
       document.removeEventListener('visibilitychange', visibility)
       cancel()
+      disposeScoreRenderer(container)
     }
   }, [cancel])
 
+  const rendered = useRef({ score, selection, width: 0 })
   useLayoutEffect(() => {
-    const container = notation.current!
+    const width = surface.current!.clientWidth || 800
+    rendered.current = { score, selection, width }
+    renderScore(notation.current!, score, selection, width)
+  }, [score, selection])
+
+  useLayoutEffect(() => {
     const parent = surface.current!
-    let width = parent.clientWidth || 800
-    renderScore(container, score, selection, width)
     const observer = new ResizeObserver(() => {
       const nextWidth = parent.clientWidth || 800
-      if (width === nextWidth) return
-      // Reflow moves hit targets. Continuing from old pointer coordinates
-      // would commit an edit the user did not preview at the new position.
+      const previous = rendered.current
+      if (previous.width === nextWidth) return
+      // Reflow invalidates the coordinates of an in-progress gesture.
       cancel()
-      width = nextWidth
-      renderScore(container, score, selection, width)
+      rendered.current = { ...previous, width: nextWidth }
+      renderScore(notation.current!, previous.score, previous.selection, nextWidth)
     })
     observer.observe(parent)
     return () => observer.disconnect()
-  }, [score, selection, cancel])
+  }, [cancel])
 
   function start(event: PointerEvent<HTMLElement>) {
     if (!editing || drag.current || event.button !== 0 || event.isPrimary === false) return
@@ -63,7 +69,7 @@ export default function ScoreCanvas({ score, selection, editing, dispatch }: Pro
     const chosen = { measureId: target.dataset.measureId!, voiceId: target.dataset.voiceId!, eventId: target.dataset.eventId! }
     event.preventDefault()
     event.currentTarget.focus({ preventScroll: true })
-    drag.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, axis: null, duration: locate(score, chosen).event.duration }
+    drag.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, axis: null, duration: locate(score, chosen).event.duration, lastPreview: '' }
     event.currentTarget.setPointerCapture(event.pointerId)
     dispatch({ type: 'begin', selection: chosen })
   }
@@ -74,8 +80,14 @@ export default function ScoreCanvas({ score, selection, editing, dispatch }: Pro
     const dx = event.clientX - current.x
     const dy = event.clientY - current.y
     current.axis ??= gestureAxis(dx, dy)
-    if (current.axis === 'vertical') dispatch({ type: 'previewPitch', amount: pitchSteps(dy) })
-    if (current.axis === 'horizontal') dispatch({ type: 'previewDuration', duration: draggedDuration(current.duration, dx) })
+    if (!current.axis) return
+    const action = current.axis === 'vertical'
+      ? { type: 'previewPitch' as const, amount: pitchSteps(dy) }
+      : { type: 'previewDuration' as const, duration: draggedDuration(current.duration, dx) }
+    const token = action.type === 'previewPitch' ? `p${action.amount}` : `d${action.duration.n}/${action.duration.d}`
+    if (token === current.lastPreview) return
+    current.lastPreview = token
+    dispatch(action)
   }
 
   function finish(event: PointerEvent<HTMLElement>) {
