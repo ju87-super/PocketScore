@@ -1,0 +1,91 @@
+name: Deploy GitHub Pages
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_public_site:
+        description: '개인 계정의 Pages 사이트와 빌드된 JS가 인터넷에 공개됨을 확인합니다. 저장소는 Private으로 유지됩니다.'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pages: read
+    steps:
+      - name: Check deployment scope
+        env:
+          CONFIRM_PUBLIC_SITE: ${{ inputs.confirm_public_site }}
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::Deploy only from main."
+            exit 1
+          fi
+          if [ "$CONFIRM_PUBLIC_SITE" != "true" ]; then
+            echo "::error::Confirm public site visibility before deploying. Repository visibility is unchanged."
+            exit 1
+          fi
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Check existing Pages configuration
+        uses: actions/configure-pages@v5
+        with:
+          enablement: false
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Verify deployed HTTP responses and rendered score
+        env:
+          POCKETSCORE_BASE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: npx playwright test --config tests/deployment/playwright.config.ts
+      - name: Save browser verification result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployed-site-verification
+          path: test-results
+          if-no-files-found: ignore
+          retention-days: 7
