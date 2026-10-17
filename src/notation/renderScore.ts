@@ -63,7 +63,9 @@ export function renderScore(container: HTMLDivElement, score: Score, selection: 
         note.getSVGElement()?.setAttribute('data-note-event', event.id)
         const hit = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
         hit.setAttribute('x', `${note.getAbsoluteX() - 14}`)
-        hit.setAttribute('y', `${note.getYs()[0] - 24}`)
+        // Keep a full touch target for ledger-line notes at SVG edges.
+        // This does not move the musical glyph.
+        hit.setAttribute('y', `${Math.max(0, Math.min(height - 48, note.getYs()[0] - 24))}`)
         hit.setAttribute('width', '44')
         hit.setAttribute('height', '48')
         hit.setAttribute('rx', '7')

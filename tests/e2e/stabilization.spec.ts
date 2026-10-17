@@ -53,3 +53,16 @@ test('rolls back a drag when resizing repositions its target', async ({ page }) 
   await page.mouse.up()
   await expect(page.getByRole('button', { name: '실행 취소' })).toBeDisabled()
 })
+
+test('preserves a fully visible touch target at C7', async ({ page }) => {
+  await page.locator('[data-event-id="m1-e1"]').click()
+  for (let i = 0; i < 21; i++) await page.keyboard.press('ArrowUp')
+  const note = page.locator('[data-event-id="m1-e1"]')
+  await expect(note).toHaveAttribute('aria-label', /C7/)
+  const visibleHeight = await note.evaluate(el => {
+    const hit = el.getBoundingClientRect()
+    const svg = el.closest('svg')!.getBoundingClientRect()
+    return Math.min(hit.bottom, svg.bottom) - Math.max(hit.top, svg.top)
+  })
+  expect(visibleHeight).toBeGreaterThanOrEqual(44)
+})
