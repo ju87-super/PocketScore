@@ -2,6 +2,8 @@ import { add, compare, equal, formatFraction, fraction, subtract, WHOLE, ZERO } 
 import type { Rational } from './rational'
 import { midi, movePitch, pitchName, STEPS } from './pitch'
 import type { Pitch } from './pitch'
+import { measureDuration, TIME_SIGNATURES, validKey } from './settings'
+import type { TimeSignature } from './settings'
 
 type EventBase = Readonly<{ id: string; start: Rational; duration: Rational }>
 export type RhythmEvent = EventBase & (
@@ -10,7 +12,7 @@ export type RhythmEvent = EventBase & (
 )
 export type Voice = Readonly<{ id: string; events: readonly RhythmEvent[] }>
 export type Measure = Readonly<{ id: string; voices: readonly Voice[] }>
-export type Score = Readonly<{ measures: readonly Measure[] }>
+export type Score = Readonly<{ keySignature: number; timeSignature: TimeSignature; measures: readonly Measure[] }>
 export type Selection = Readonly<{ measureId: string; voiceId: string; eventId: string }>
 
 // Durations are whole-note fractions, including a single dot. No floating-point timing.
@@ -34,6 +36,8 @@ export function validateScore(score: Score): string[] {
   const errors: string[] = []
   const ids = new Set<string>()
   const measureIds = new Set<string>()
+  if (!validKey(score.keySignature)) errors.push('지원하지 않는 조표')
+  if (!TIME_SIGNATURES.includes(score.timeSignature)) return ['지원하지 않는 박자표']
   if (score.measures.length === 0) errors.push('마디가 없습니다.')
   for (const measure of score.measures) {
     if (measureIds.has(measure.id)) errors.push('중복 마디 ID')
@@ -53,7 +57,7 @@ export function validateScore(score: Score): string[] {
           || ![-1, 0, 1].includes(event.pitch.alter) || midi(event.pitch) < 36 || midi(event.pitch) > 96)) errors.push('잘못된 음높이')
         end = add(end, event.duration)
       }
-      if (!equal(end, WHOLE)) errors.push(`${measure.id}/${voice.id}: 박자 합계 ${formatFraction(end)} (4/4 필요)`)
+      if (!equal(end, measureDuration(score.timeSignature))) errors.push(`${measure.id}/${voice.id}: 박자 합계 ${formatFraction(end)} (${score.timeSignature} 필요)`)
     }
   }
   return errors
@@ -80,8 +84,7 @@ function replaceVoice(score: Score, selection: Selection, events: readonly Rhyth
   return next
 }
 
-function makeRests(score: Score, amount: Rational): RhythmEvent[] {
-  const used = new Set(score.measures.flatMap(measure => measure.voices.flatMap(voice => voice.events.map(event => event.id))))
+function makeRests(score: Score, amount: Rational, used = new Set(score.measures.flatMap(measure => measure.voices.flatMap(voice => voice.events.map(event => event.id))))): RhythmEvent[] {
   let serial = 1
   const rests: RhythmEvent[] = []
   let remaining = amount
@@ -124,8 +127,55 @@ export function resizeEvent(score: Score, selection: Selection, duration: Ration
 export function transposeEvent(score: Score, selection: Selection, amount: number, chromatic = false): Score {
   const { voice, index, event } = locate(score, selection)
   if (event.kind === 'rest' || amount === 0) return score
-  const pitch = movePitch(event.pitch, amount, chromatic)
+  const pitch = movePitch(event.pitch, amount, chromatic, score.keySignature)
   return replaceVoice(score, selection, voice.events.map((item, i) => i === index ? { ...event, pitch } : item))
+}
+
+export function setAccidental(score: Score, selection: Selection, alter: Pitch['alter']): Score {
+  const { voice, index, event } = locate(score, selection)
+  if (event.kind === 'rest' || event.pitch.alter === alter) return score
+  if (![-1, 0, 1].includes(alter)) throw new Error('지원하지 않는 임시표입니다.')
+  return replaceVoice(score, selection, voice.events.map((item, i) => i === index
+    ? { ...event, pitch: { ...event.pitch, alter } } : item))
+}
+
+export function setKeySignature(score: Score, keySignature: number): Score {
+  if (!validKey(keySignature)) throw new Error('조표는 플랫 7개부터 샤프 7개까지 지원합니다.')
+  return keySignature === score.keySignature ? score : { ...score, keySignature }
+}
+
+export function setTimeSignature(score: Score, timeSignature: TimeSignature): Score {
+  if (!TIME_SIGNATURES.includes(timeSignature)) throw new Error('지원하지 않는 박자표입니다.')
+  if (timeSignature === score.timeSignature) return score
+  const limit = measureDuration(timeSignature)
+  // Reject atomically before touching any voice if a sounding note would be cut.
+  for (const [index, measure] of score.measures.entries()) {
+    if (measure.voices.some(voice => voice.events.some(event => event.kind === 'note' && compare(add(event.start, event.duration), limit) > 0))) {
+      throw new Error(`${index + 1}마디의 음표가 ${timeSignature} 마디 길이를 넘습니다. 음표의 시작과 길이를 보존할 수 없어 박자 변경을 거부했습니다.`)
+    }
+  }
+  const used = new Set(score.measures.flatMap(measure => measure.voices.flatMap(voice => voice.events.map(event => event.id))))
+  const next: Score = { ...score, timeSignature, measures: score.measures.map(measure => ({
+    ...measure, voices: measure.voices.map(voice => {
+      const events: RhythmEvent[] = []
+      for (const event of voice.events) {
+        if (compare(event.start, limit) >= 0) break
+        if (compare(add(event.start, event.duration), limit) <= 0) events.push(event)
+        else {
+          // Only a trailing rest can intersect the new barline. Re-spell its
+          // remaining duration without moving or resizing any note.
+          const rests = makeRests(score, subtract(limit, event.start), used)
+          events.push(...rests.map((rest, i) => i === 0 ? { ...rest, id: event.id } : rest))
+        }
+      }
+      const end = events.reduce((sum, event) => add(sum, event.duration), ZERO)
+      if (compare(end, limit) < 0) events.push(...makeRests(score, subtract(limit, end), used))
+      return { ...voice, events: retime(events) }
+    }),
+  })) }
+  const errors = validateScore(next)
+  if (errors.length) throw new Error(errors.join(' '))
+  return next
 }
 
 export function selections(score: Score): Selection[] {
@@ -150,7 +200,7 @@ export function createInitialScore(): Score {
     [['rest', fraction(1, 2)], ['note', quarter, { step: 'D', octave: 4, alter: 0 }], ['rest', quarter]],
     [['note', quarter, { step: 'G', octave: 4, alter: 0 }], ['rest', fraction(3, 4)]],
   ]
-  return { measures: definitions.map((items, m) => ({
+  return { keySignature: 0, timeSignature: '4/4', measures: definitions.map((items, m) => ({
     id: `m${m + 1}`,
     voices: [{ id: 'v1', events: retime(items.map(([kind, duration, pitch], e) => ({
       id: `m${m + 1}-e${e + 1}`, start: ZERO, duration,

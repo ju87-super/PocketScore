@@ -13,6 +13,47 @@ const currentPitch = (state: ReturnType<typeof createEditor>) => {
 }
 
 describe('history and gesture transactions', () => {
+  it('undoes/redoes global signatures without selection and ignores no-op settings', () => {
+    const before = createEditor()
+    let state = editorReducer(before, { type: 'keySignature', key: 7 })
+    state = editorReducer(state, { type: 'timeSignature', time: '12/8' })
+    expect(state.past).toHaveLength(2)
+    expect(editorReducer(state, { type: 'timeSignature', time: '12/8' }).past).toHaveLength(2)
+    const undone = editorReducer(state, { type: 'undo' })
+    expect(undone.present.score.timeSignature).toBe('4/4')
+    expect(editorReducer(undone, { type: 'redo' }).present).toEqual(state.present)
+    expect(editorReducer(undone, { type: 'undo' }).present).toEqual(before.present)
+  })
+
+  it('restores removed rest selections on undo and leaves failed meter edits out of history', () => {
+    let state = editorReducer(createEditor(), { type: 'select', selection: { ...selection, eventId: 'm1-e4' } })
+    const before = state.present
+    state = editorReducer(state, { type: 'timeSignature', time: '3/4' })
+    expect(state.present.selection).toBeNull()
+    const undone = editorReducer(state, { type: 'undo' })
+    expect(undone.present).toEqual(before)
+    const failed = editorReducer(undone, { type: 'timeSignature', time: '2/4' })
+    expect(failed.present).toBe(undone.present)
+    expect(failed.notice).toMatch(/1마디.*음표/)
+    expect(failed.future).toEqual(undone.future)
+    expect(failed.past).toEqual(undone.past)
+  })
+
+  it('records accidental edits with complete pitch and selection snapshots', () => {
+    const before = selected()
+    const sharp = editorReducer(before, { type: 'accidental', alter: 1 })
+    const flat = editorReducer(sharp, { type: 'accidental', alter: -1 })
+    const natural = editorReducer(flat, { type: 'accidental', alter: 0 })
+    expect(currentPitch(sharp)).toBe('C♯4')
+    expect(currentPitch(flat)).toBe('C♭4')
+    expect(currentPitch(natural)).toBe('C4')
+    expect(editorReducer(natural, { type: 'undo' }).present).toEqual(flat.present)
+    const undone = editorReducer(sharp, { type: 'undo' })
+    expect(undone.present).toEqual(before.present)
+    expect(editorReducer(undone, { type: 'redo' }).present).toEqual(sharp.present)
+    const rest = editorReducer(before, { type: 'cursor', direction: 1 })
+    expect(editorReducer(rest, { type: 'accidental', alter: 1 }).past).toHaveLength(0)
+  })
   it('undoes/redoes a duration edit including generated rests, IDs and selection', () => {
     const before = selected()
     const edited = editorReducer(before, { type: 'duration', duration: fraction(1, 8) })
@@ -86,6 +127,9 @@ describe('history and gesture transactions', () => {
     expect(editorReducer(state, { type: 'undo' })).toBe(state)
     expect(editorReducer(state, { type: 'cursor', direction: 1 })).toBe(state)
     expect(editorReducer(state, { type: 'pitch', amount: 1 })).toBe(state)
+    expect(editorReducer(state, { type: 'keySignature', key: 1 })).toBe(state)
+    expect(editorReducer(state, { type: 'timeSignature', time: '3/4' })).toBe(state)
+    expect(editorReducer(state, { type: 'accidental', alter: 1 })).toBe(state)
   })
 
   it('reports a missing selection and ignores orphaned preview events', () => {
