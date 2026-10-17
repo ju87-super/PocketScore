@@ -1,0 +1,53 @@
+:root {
+  font-family: system-ui, sans-serif;
+  color: #182f2a;
+  background: #ecefe9;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; }
+button, select { font: inherit; color: inherit; }
+button { min-width: 44px; min-height: 44px; cursor: pointer; }
+button:disabled { opacity: .4; cursor: default; }
+button:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px solid #185e99; outline-offset: 2px; }
+main { width: min(100%, 1440px); margin-inline: auto; padding: 1rem; }
+.app-header { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; justify-content: space-between; margin-bottom: 1.25rem; }
+h1 { margin: 0; font-size: 1.6rem; letter-spacing: -.05em; }
+.app-header p { margin: .25rem 0 0; font-size: .8rem; color: #506057; }
+.validation { font-size: .8rem; border-radius: 2rem; padding: .5rem .75rem; background: #dce9dc; }
+.workspace { position: relative; padding-left: 4rem; min-height: 520px; }
+.toolbar { position: absolute; z-index: 2; top: 0; bottom: 0; left: 0; width: 3.5rem; padding: .25rem; border-radius: .75rem; background: #fdfdf9; border: 1px solid #d2d8ce; }
+.toolbar[data-expanded="true"] { width: 15rem; box-shadow: 4px 4px 20px #182f2a22; }
+.toolbar button { display: flex; align-items: center; gap: .75rem; width: 100%; margin-bottom: .3rem; border: 0; border-radius: .5rem; background: transparent; text-align: left; padding: .5rem .6rem; }
+.toolbar button > span:first-child { font-size: 1.2rem; min-width: 1.25rem; text-align: center; }
+.toolbar button[aria-pressed="true"] { background: #dce9dc; }
+.toolbar hr { border: 0; border-top: 1px solid #d2d8ce; margin: .5rem 0; }
+.duration-tools { padding: .5rem; }
+.duration-tools label { display: block; margin-bottom: .5rem; }
+.duration-tools select { width: 100%; min-height: 44px; }
+.score-content { min-width: 0; }
+.score-caption { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: .5rem; padding: .5rem .75rem; }
+.score-caption h2 { font-size: 1rem; margin: 0; }
+.score-caption span { font-size: .8rem; color: #506057; }
+.score-surface { overflow: auto; background: #fffef9; border: 1px solid #d2d8ce; border-radius: .5rem; touch-action: pan-x pan-y pinch-zoom; outline-offset: -3px; }
+.score-surface[data-editing="true"] { touch-action: none; }
+.score-surface:focus-visible { outline: 3px solid #185e99; }
+.notation { line-height: 0; }
+.notation svg { display: block; }
+/* VexFlow also emits transparent hit rectangles; only our model-backed targets edit. */
+.notation svg * { pointer-events: none; }
+.notation svg .event-target { pointer-events: all; }
+.event-target { fill: transparent; stroke: transparent; stroke-width: 2px; cursor: grab; touch-action: none; }
+.event-target.selected { fill: #185e9910; stroke: #185e99; }
+.score-surface[data-editing="false"] .event-target { pointer-events: none; touch-action: auto; }
+.selection-status { display: block; padding: .75rem .25rem .25rem; font-size: .9rem; }
+.notice { min-height: 2.5rem; font-size: .8rem; color: #506057; line-height: 1.6; margin: .5rem .25rem; }
+.help { margin-top: 1rem; padding: 1rem; border-top: 1px solid #d2d8ce; font-size: .85rem; line-height: 1.8; }
+.help summary { cursor: pointer; min-height: 44px; }
+@media (max-width: 600px) {
+  main { padding: .75rem .5rem; }
+  .workspace { padding-left: 3.75rem; }
+  .validation { font-size: .7rem; }
+}
