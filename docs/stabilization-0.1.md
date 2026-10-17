@@ -176,9 +176,16 @@ Chromium은 시스템에 설치된 **154.0.8037.57**, Playwright는 lockfile의 
 - 터치 영역 수정: `4613290`
 - 반응성 최적화: `a127f92`
 - 독립 RAF 측정: `3b4dac3`
-- 최종 문서/측정 커밋 및 PR/Actions 결과는 작업 완료 메시지에 기록합니다.
+- 측정 원시 자료/보고서 커밋: `b966a37`
+- 브랜치 푸시: 성공. 원격은 위 브랜치이며 main에는 푸시하지 않았습니다.
+- PR 자동 생성: 미완료. `POST https://api.github.com/graphql`이 `Forbidden`으로 거부됐습니다.
+- GitHub Actions 조회: 미완료. 해당 브랜치 runs API가 `Forbidden`으로 거부됐습니다.
+  로컬 검사 통과와 GitHub Actions 상태를 구분합니다.
+- [PR 생성 URL](https://github.com/ju87-super/PocketScore/pull/new/fix/stabilization-performance-0.1)
+- [복사 가능한 PR 제목·설명](stabilization-pr.md)
+- 최종 HEAD SHA는 작업 완료 메시지에 기록합니다.
 
-GitHub API가 허용되지 않으면 실제 PR/Actions 상태는 확인할 수 없습니다.
-이 경우 브랜치 푸시와 PR 생성용 URL·제목·설명을 제공하고, 생성/CI 성공으로 주장하지 않습니다.
+웹에서 PR 제목과 설명을 복사해 main 대상 PR을 생성하고 변경 내용 및 Actions 결과를 검토하면 됩니다.
+이 환경의 API 제한 때문에 실제 PR/CI 성공으로 주장하지 않습니다.
 `main` 직접 푸시·병합, 강제 푸시, 저장소 공개 범위·이메일 개인정보 설정·Pages 배포 설정 변경과
 Pages 재배포는 하지 않습니다.
