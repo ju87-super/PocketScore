@@ -1,0 +1,137 @@
+import { expect, test } from '@playwright/test'
+import type { Page } from '@playwright/test'
+
+const target = (page: Page, id: string) => page.locator(`[data-event-id="${id}"]`)
+// Bravura SMuFL codepoints: these assertions inspect the actual rendered glyphs.
+const glyph = { sharp: '\ue262', flat: '\ue260', natural: '\ue261' }
+const accidental = (page: Page, id: string, symbol: string) => page.locator(`[data-note-event="${id}"] text`).filter({ hasText: symbol })
+const key = (page: Page) => page.getByRole('combobox', { name: '악보 조표', exact: true })
+const time = (page: Page) => page.getByRole('combobox', { name: '악보 박자표', exact: true })
+const alter = (page: Page) => page.getByRole('combobox', { name: '선택 음표 임시표', exact: true })
+
+test.beforeEach(async ({ page }) => {
+  page.on('pageerror', error => { throw error })
+  await page.goto('./')
+  await expect(target(page, 'm1-e1')).toBeVisible()
+})
+
+test('reflows clefs and key signatures at system starts while keeping a single opening meter', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.getByRole('button', { name: '도구 막대 펼치기' }).click()
+  await key(page).selectOption('7')
+  await page.getByRole('button', { name: '도구 막대 접기' }).click()
+  await expect(page.locator('.vf-clef')).toHaveCount(2)
+  await expect(page.locator('.vf-keysignature')).toHaveCount(2)
+  await expect(page.locator('.vf-timesignature')).toHaveCount(1)
+  for (const id of ['m1', 'm3']) {
+    const stave = page.locator(`[data-rendered-measure="${id}"]`)
+    await expect(stave.locator('.vf-clef')).toHaveCount(1)
+    await expect(stave.locator('.vf-keysignature text')).toHaveCount(7)
+  }
+  await expect(page.locator('[data-rendered-measure="m2"] .vf-clef')).toHaveCount(0)
+  await page.setViewportSize({ width: 600, height: 900 })
+  await expect(page.locator('.vf-clef')).toHaveCount(4)
+  await expect(page.locator('.vf-keysignature')).toHaveCount(4)
+  await expect(page.locator('.vf-timesignature')).toHaveCount(1)
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await expect(page.locator('.vf-clef')).toHaveCount(2)
+  await expect(page.locator('.vf-timesignature')).toHaveCount(1)
+})
+
+test('renders all key signatures, keeps pitches and uses the key for ordinary movement', async ({ page }) => {
+  await target(page, 'm1-e1').click()
+  await page.getByRole('button', { name: '도구 막대 펼치기' }).click()
+  for (let fifths = -7; fifths <= 7; fifths++) {
+    await key(page).selectOption(String(fifths))
+    await expect(page.getByTestId('selection-status')).toContainText('C4 4분음표')
+    const first = page.locator('[data-rendered-measure="m1"] .vf-keysignature')
+    await expect(first.locator('text')).toHaveCount(Math.abs(fifths))
+    if (fifths !== 0) await expect(first.locator('text').first()).toHaveText(fifths < 0 ? glyph.flat : glyph.sharp)
+    await expect(accidental(page, 'm1-e1', glyph.natural)).toHaveCount(fifths <= -6 || fifths >= 2 ? 1 : 0)
+  }
+  await key(page).selectOption('1')
+  await page.getByRole('button', { name: '도구 막대 접기' }).click()
+  await target(page, 'm1-e3').click() // E -> F# in G major
+  await page.keyboard.press('ArrowUp')
+  await expect(page.getByTestId('selection-status')).toContainText('F♯4')
+  await expect(accidental(page, 'm1-e3', glyph.sharp)).toHaveCount(0)
+  await page.keyboard.press('Shift+ArrowDown')
+  await expect(page.getByTestId('selection-status')).toContainText('F4')
+  await expect(accidental(page, 'm1-e3', glyph.natural)).toHaveCount(1)
+  await page.keyboard.press('Control+z')
+  await expect(page.getByTestId('selection-status')).toContainText('F♯4')
+  await page.getByRole('button', { name: '실행 취소' }).click()
+  await expect(page.getByTestId('selection-status')).toContainText('E4')
+})
+
+test('renders repeated, cancelled and reset accidentals and restores them with undo/redo', async ({ page }) => {
+  await target(page, 'm1-e1').click()
+  await page.keyboard.press('ArrowUp')
+  await page.keyboard.press('ArrowUp')
+  await page.keyboard.press('ArrowUp') // F4
+  await page.getByRole('button', { name: '도구 막대 펼치기' }).click()
+  await alter(page).selectOption('1')
+  await expect(accidental(page, 'm1-e1', glyph.sharp)).toHaveCount(1)
+  await page.getByRole('button', { name: '도구 막대 접기' }).click()
+  await target(page, 'm1-e3').click()
+  await page.keyboard.press('ArrowUp') // F natural cancels earlier F#
+  await expect(accidental(page, 'm1-e3', glyph.natural)).toHaveCount(1)
+  await page.getByRole('button', { name: '도구 막대 펼치기' }).click()
+  await alter(page).selectOption('1')
+  await expect(accidental(page, 'm1-e3', glyph.sharp)).toHaveCount(0)
+  await expect(accidental(page, 'm1-e3', glyph.natural)).toHaveCount(0)
+  await alter(page).selectOption('-1')
+  await expect(accidental(page, 'm1-e3', glyph.flat)).toHaveCount(1)
+  await alter(page).selectOption('0')
+  await expect(accidental(page, 'm1-e3', glyph.natural)).toHaveCount(1)
+  await page.getByRole('button', { name: '실행 취소' }).click()
+  await expect(accidental(page, 'm1-e3', glyph.flat)).toHaveCount(1)
+  await page.getByRole('button', { name: '다시 실행' }).click()
+  await expect(accidental(page, 'm1-e3', glyph.natural)).toHaveCount(1)
+  await page.getByRole('button', { name: '도구 막대 접기' }).click()
+  await target(page, 'm2-e4').click() // F natural needs no accidental in a new measure
+  await expect(accidental(page, 'm2-e4', glyph.natural)).toHaveCount(0)
+  await page.getByRole('button', { name: '도구 막대 펼치기' }).click()
+  await alter(page).selectOption('1')
+  await expect(accidental(page, 'm2-e4', glyph.sharp)).toHaveCount(1)
+  await page.getByRole('button', { name: '도구 막대 접기' }).click()
+  await target(page, 'm2-e3').click()
+  await page.getByRole('button', { name: '도구 막대 펼치기' }).click()
+  await expect(alter(page)).toBeDisabled()
+})
+
+test('changes real measure capacity, preserves notes, rejects clipping and restores meter history', async ({ page }) => {
+  await page.getByRole('button', { name: '도구 막대 펼치기' }).click()
+  await time(page).selectOption('2/4')
+  await expect(time(page)).toHaveValue('4/4')
+  await expect(page.getByText(/1마디의 음표가 2\/4/)).toBeVisible()
+  await expect(page.getByRole('button', { name: '실행 취소' })).toBeDisabled()
+  await time(page).selectOption('3/8')
+  await expect(time(page)).toHaveValue('4/4')
+  await expect(page.getByText(/1마디의 음표가 3\/8/)).toBeVisible()
+  for (const meter of ['3/4', '6/8', '9/8', '12/8']) {
+    await time(page).selectOption(meter)
+    await expect(page.getByText(`4마디 · ${meter} · 박자 검증 통과`)).toBeVisible()
+    await expect(page.locator('.vf-timesignature')).toHaveCount(1)
+    await expect(page.locator('svg[role="group"]')).toHaveAttribute('aria-label', new RegExp(meter))
+    await expect(page.locator('.event-target[aria-label*="음표"]')).toHaveCount(7)
+  }
+  await page.getByRole('button', { name: '실행 취소' }).click()
+  await expect(time(page)).toHaveValue('9/8')
+  await page.getByRole('button', { name: '다시 실행' }).click()
+  await expect(time(page)).toHaveValue('12/8')
+  await page.getByRole('button', { name: '도구 막대 접기' }).click()
+  await target(page, 'm2-e4').click()
+  await expect(page.getByTestId('selection-status')).toContainText('F4 4분음표 · 시작 1/2')
+  await page.getByRole('button', { name: '도구 막대 펼치기' }).click()
+  // 12/8 supplies space for a half-note here; shrinking back would clip it.
+  await page.getByRole('combobox', { name: '선택 길이' }).selectOption('5')
+  await page.getByRole('combobox', { name: '선택 길이' }).scrollIntoViewIfNeeded()
+  const durationBox = await page.getByRole('combobox', { name: '선택 길이' }).boundingBox()
+  const toolbarBox = await page.getByRole('complementary', { name: '악보 도구 막대' }).boundingBox()
+  expect(durationBox && toolbarBox && durationBox.y + durationBox.height <= toolbarBox.y + toolbarBox.height).toBe(true)
+  await expect(page.getByTestId('selection-status')).toContainText('F4 2분음표 · 시작 1/2')
+  await time(page).selectOption('3/4')
+  await expect(time(page)).toHaveValue('12/8')
+  await expect(page.getByText(/2마디의 음표가/)).toBeVisible()
+})

@@ -13,7 +13,7 @@ const h = fraction(1, 2)
 const events = (score: Score) => score.measures[0].voices[0].events
 
 function restScore(durations = [q, e, e, h]): Score {
-  return { measures: [{ id: 'm1', voices: [{ id: 'v1', events: retime(durations.map((duration, index) => ({
+  return { ...createInitialScore(), measures: [{ id: 'm1', voices: [{ id: 'v1', events: retime(durations.map((duration, index) => ({
     id: `m1-e${index + 1}`, kind: 'rest' as const, start: ZERO, duration,
   }))) }] }] }
 }
@@ -37,7 +37,7 @@ describe('exact timing and invariants', () => {
   it('detects gaps, incorrect totals, duplicate IDs, and invalid durations', () => {
     const original = events(createInitialScore())
     const broken: RhythmEvent[] = [original[0], { ...original[1], id: original[0].id, start: ZERO, duration: fraction(1, 3) }]
-    const score: Score = { measures: [{ id: 'm1', voices: [{ id: 'v1', events: broken }] }] }
+    const score: Score = { ...createInitialScore(), measures: [{ id: 'm1', voices: [{ id: 'v1', events: broken }] }] }
     const errors = validateScore(score).join(' ')
     expect(errors).toMatch(/시작 시점/)
     expect(errors).toMatch(/박자 합계/)
@@ -96,7 +96,7 @@ describe('duration edits', () => {
     const score = createInitialScore()
     const last = { ...first, eventId: 'm1-e4' }
     expect(() => resizeEvent(score, last, h)).toThrow(/마디선/)
-    const withVoice: Score = { measures: [{ ...score.measures[0], voices: [score.measures[0].voices[0], { ...restScore([WHOLE]).measures[0].voices[0], id: 'v2', events: [{ id: 'other', kind: 'rest', start: ZERO, duration: WHOLE }] }] }] }
+    const withVoice: Score = { ...score, measures: [{ ...score.measures[0], voices: [score.measures[0].voices[0], { ...restScore([WHOLE]).measures[0].voices[0], id: 'v2', events: [{ id: 'other', kind: 'rest', start: ZERO, duration: WHOLE }] }] }] }
     expect(() => resizeEvent(withVoice, second, h)).toThrow(/부족/)
     const next = resizeEvent(withVoice, first, h)
     expect(next.measures[0].voices[1]).toBe(withVoice.measures[0].voices[1])
