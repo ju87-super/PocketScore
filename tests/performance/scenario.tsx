@@ -48,6 +48,14 @@ async function run(count: number, steps = 12) {
   const results: Record<string, ReturnType<typeof summary>> = {}
   const taskStart = longTasks.length
   let worstFrame = 0
+  let previousRAF: number | null = null
+  let frameRequest = 0
+  const trackFrame = (timestamp: number) => {
+    if (previousRAF !== null) worstFrame = Math.max(worstFrame, timestamp - previousRAF)
+    previousRAF = timestamp
+    frameRequest = requestAnimationFrame(trackFrame)
+  }
+  frameRequest = requestAnimationFrame(trackFrame)
   const mutations = { added: 0, removed: 0 }
   const observer = new MutationObserver(records => {
     for (const record of records) { mutations.added += record.addedNodes.length; mutations.removed += record.removedNodes.length }
@@ -56,13 +64,13 @@ async function run(count: number, steps = 12) {
   async function measure(name: string, action: (index: number) => void) {
     const times: number[] = []
     for (let i = 0; i < steps; i++) {
-      const previousFrame = await frame()
+      await frame()
       const start = performance.now()
       action(i)
       document.querySelector('svg')!.getBoundingClientRect()
       if (name === 'resize') { await frame(); await frame() }
       times.push(performance.now() - start)
-      worstFrame = Math.max(worstFrame, (await frame()) - previousFrame)
+      await frame()
     }
     results[name] = summary(times)
   }
@@ -78,6 +86,7 @@ async function run(count: number, steps = 12) {
   await measure('resize', i => { surface.style.width = i % 2 ? '100%' : '600px' })
   await frame()
   observer.disconnect()
+  cancelAnimationFrame(frameRequest)
   const errors = validateScore(current.present.score)
   if (errors.length) throw new Error(errors.join(' '))
   return { count, initial: summary(initial), fullSVG: summary(svgTimes), updates: results, mutations,
