@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 import type { Dispatch, KeyboardEvent, PointerEvent } from 'react'
 import { locate } from '../music/score'
 import type { Score, Selection } from '../music/score'
@@ -16,6 +16,28 @@ export default function ScoreCanvas({ score, selection, editing, dispatch }: Pro
   const notation = useRef<HTMLDivElement>(null)
   const drag = useRef<Drag | null>(null)
 
+  const cancel = useCallback((event?: PointerEvent<HTMLElement>) => {
+    const current = drag.current
+    if (!current || (event && event.pointerId !== current.pointerId)) return
+    drag.current = null
+    // Clear our transaction before releasing capture: lostpointercapture can
+    // arrive synchronously and must not cancel a later gesture.
+    if (surface.current?.hasPointerCapture(current.pointerId)) surface.current.releasePointerCapture(current.pointerId)
+    dispatch({ type: 'cancel' })
+  }, [dispatch])
+
+  useEffect(() => {
+    const loseFocus = () => cancel()
+    const visibility = () => { if (document.hidden) cancel() }
+    window.addEventListener('blur', loseFocus)
+    document.addEventListener('visibilitychange', visibility)
+    return () => {
+      window.removeEventListener('blur', loseFocus)
+      document.removeEventListener('visibilitychange', visibility)
+      cancel()
+    }
+  }, [cancel])
+
   useLayoutEffect(() => {
     const container = notation.current!
     const parent = surface.current!
@@ -24,18 +46,15 @@ export default function ScoreCanvas({ score, selection, editing, dispatch }: Pro
     const observer = new ResizeObserver(() => {
       const nextWidth = parent.clientWidth || 800
       if (width === nextWidth) return
+      // Reflow moves hit targets. Continuing from old pointer coordinates
+      // would commit an edit the user did not preview at the new position.
+      cancel()
       width = nextWidth
       renderScore(container, score, selection, width)
     })
     observer.observe(parent)
     return () => observer.disconnect()
-  }, [score, selection])
-
-  function cancel(event?: PointerEvent<HTMLElement>) {
-    if (!drag.current || (event && event.pointerId !== drag.current.pointerId)) return
-    drag.current = null
-    dispatch({ type: 'cancel' })
-  }
+  }, [score, selection, cancel])
 
   function start(event: PointerEvent<HTMLElement>) {
     if (!editing || drag.current || event.button !== 0 || event.isPrimary === false) return
