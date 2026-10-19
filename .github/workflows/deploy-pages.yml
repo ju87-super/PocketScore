@@ -57,7 +57,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           EXPECTED_SHA: ${{ needs.eligibility.outputs.sha }}
         run: test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)" = "$EXPECTED_SHA"
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
         with:
           enablement: false
       - run: npm run build
@@ -70,12 +70,12 @@ jobs:
         env:
           POCKETSCORE_EXPECTED_SHA: ${{ needs.eligibility.outputs.sha }}
         run: npx playwright test --config tests/deployment/local.config.ts
-      - uses: actions/upload-pages-artifact@v4
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: dist
       - name: Upload predeployment reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: pages-predeployment-${{ github.run_attempt }}
           path: |
@@ -102,7 +102,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           EXPECTED_SHA: ${{ needs.eligibility.outputs.sha }}
         run: test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)" = "$EXPECTED_SHA"
-      - uses: actions/deploy-pages@v4
+      - uses: actions/deploy-pages@v5
         id: deployment
   smoke:
     needs: [eligibility, deploy]
@@ -126,7 +126,7 @@ jobs:
         run: npx playwright test --config tests/deployment/playwright.config.ts
       - name: Upload deployed smoke result and traces
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: pages-smoke-${{ github.run_attempt }}
           path: |

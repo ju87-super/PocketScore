@@ -37,7 +37,7 @@ jobs:
           submodules: recursive
       - name: Install native build prerequisites
         run: sudo apt-get update && sudo apt-get install -y cmake ninja-build ccache pkg-config build-essential libgl1-mesa-dev libxkbcommon-dev
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
       - uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
@@ -56,16 +56,17 @@ jobs:
       - name: Build actual app-web and execute compiled toolchain smoke
         run: bash tools/musescore-web/build.sh
       - name: Upload actual engine artifacts and license/source references
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: musescore-web-engine
           path: .cache/musescore-web/
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
           compression-level: 1
       - name: Preserve build logs even when compilation fails
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: wasm-build-reports
           path: |
@@ -93,7 +94,7 @@ jobs:
             /*
             !/public/audio/*.sf3
       - uses: ./.github/actions/setup-node
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: musescore-web-engine
           path: .cache/musescore-web
@@ -101,7 +102,7 @@ jobs:
       - run: npx playwright test --config tests/wasm/playwright.config.ts
       - name: Upload staged runtime evidence and failed traces
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: wasm-runtime-reports
           path: |

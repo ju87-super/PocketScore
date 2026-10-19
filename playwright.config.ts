@@ -1,4 +1,5 @@
 import { defineConfig } from '@playwright/test'
+import { githubReporter } from './tests/reporters'
 const suite = process.env.CI_SUITE ?? 'e2e'
 
 export default defineConfig({
@@ -7,11 +8,12 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: 0,
   outputDir: `test-results/${suite}`,
-  reporter: [['list'], ['html', { outputFolder: `reports/${suite}/html`, open: 'never' }],
+  reporter: [['list'], ...githubReporter(), ['html', { outputFolder: `reports/${suite}/html`, open: 'never' }],
     ['junit', { outputFile: `reports/${suite}/playwright.xml` }], ['json', { outputFile: `reports/${suite}/playwright.json` }]],
   projects: [
     { name: 'chromium', grepInvert: /@audio/ },
-    { name: 'audio', grep: /@audio/ },
+    // Real SF3 decoding/AudioContexts are intentionally isolated from each other.
+    { name: 'audio', grep: /@audio/, workers: 1 },
   ],
   workers: process.env.CI ? 2 : 1,
   use: {

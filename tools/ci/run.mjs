@@ -3,6 +3,7 @@ import { createWriteStream } from 'node:fs'
 import { appendFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { stripVTControlCharacters } from 'node:util'
 import { suites } from './suites.mjs'
 
 export async function runSuite(name, options = {}) {
@@ -33,20 +34,30 @@ export async function runSuite(name, options = {}) {
     results.push({ command: command.join(' '), exitCode, status: exitCode === 0 ? 'passed' : 'failed', seconds: (Date.now() - commandStarted) / 1000, log: `${index + 1}.log` })
   }
   let tests = null
+  const failures = []
   try {
     const vitest = JSON.parse(await readFile(resolve(directory, 'vitest.json'), 'utf8'))
     tests = { total: vitest.numTotalTests, passed: vitest.numPassedTests, failed: vitest.numFailedTests, skipped: vitest.numPendingTests, todo: vitest.numTodoTests }
+    for (const file of vitest.testResults ?? []) for (const item of file.assertionResults ?? []) if (item.status === 'failed') failures.push({ title: item.fullName, error: item.failureMessages?.join('\n') ?? 'See JUnit report' })
   } catch { /* Command-only suites have no Vitest report. */ }
   if (name === 'browser' || name === 'audio') {
     try {
-      const { stats } = JSON.parse(await readFile(resolve(directory, 'playwright.json'), 'utf8'))
+      const { stats, suites: browserSuites } = JSON.parse(await readFile(resolve(directory, 'playwright.json'), 'utf8'))
       tests = { total: stats.expected + stats.unexpected + stats.skipped, passed: stats.expected, failed: stats.unexpected, skipped: stats.skipped, flaky: stats.flaky }
+      const visit = suite => {
+        for (const spec of suite.specs ?? []) for (const test of spec.tests ?? []) for (const result of test.results ?? []) {
+          if (result.status === 'failed' || result.status === 'timedOut' || result.status === 'interrupted') failures.push({ title: spec.title, error: result.error?.message ?? result.errors?.map(error => error.message).join('\n') ?? result.status })
+        }
+        for (const child of suite.suites ?? []) visit(child)
+      }
+      for (const suite of browserSuites ?? []) visit(suite)
     } catch { /* A startup failure still has a nonzero command status/log. */ }
   }
   const exitCode = results.find(result => result.exitCode !== 0)?.exitCode ?? 0
-  const report = { suite: name, status: exitCode ? 'failed' : 'passed', exitCode, seconds: (Date.now() - started) / 1000, tests, commands: results }
+  const report = { suite: name, status: exitCode ? 'failed' : 'passed', exitCode, seconds: (Date.now() - started) / 1000, tests, failures, commands: results }
   await writeFile(resolve(directory, 'result.json'), JSON.stringify(report, null, 2) + '\n')
-  const summary = `## ${name}: ${report.status}\n\nElapsed: ${report.seconds.toFixed(2)}s\n\n| Command | Result | Seconds |\n|---|---|---|\n${results.map(result => `| \`${result.command}\` | ${result.status} (exit ${result.exitCode}) | ${result.seconds.toFixed(2)} |`).join('\n')}\n\n${tests ? `Tests: ${JSON.stringify(tests)}\n` : 'Counts: see the browser/Node test reports; no synthetic test count is reported.\n'}\nNot implemented: tuplets/tie playback. Their rejection tests do not establish feature support. Real Galaxy Tab and MuseScore GUI checks are not included.\n`
+  const diagnostics = failures.slice(0, 10).map(failure => `### ${failure.title}\n\n\`\`\`text\n${stripVTControlCharacters(failure.error).slice(0, 4000).replaceAll('```', '` ` `')}\n\`\`\`\n`).join('\n')
+  const summary = `## ${name}: ${report.status}\n\nElapsed: ${report.seconds.toFixed(2)}s\n\n| Command | Result | Seconds |\n|---|---|---|\n${results.map(result => `| \`${result.command}\` | ${result.status} (exit ${result.exitCode}) | ${result.seconds.toFixed(2)} |`).join('\n')}\n\n${tests ? `Tests: ${JSON.stringify(tests)}\n` : 'Counts: see the browser/Node test reports; no synthetic test count is reported.\n'}\n${diagnostics}\nNot implemented: tuplets/tie playback. Their rejection tests do not establish feature support. Real Galaxy Tab and MuseScore GUI checks are not included.\n`
   await writeFile(resolve(directory, 'summary.md'), summary)
   if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, summary)
   return report

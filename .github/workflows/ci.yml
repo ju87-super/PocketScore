@@ -40,7 +40,7 @@ jobs:
           node -e 'console.error("Intentional failure: check and CD must reject this run"); process.exit(1)'
       - name: Upload quality reports and logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: quality-${{ github.run_attempt }}
           path: reports/
@@ -78,7 +78,7 @@ jobs:
         run: node tools/ci/run.mjs "$CI_SUITE"
       - name: Upload test reports and failure logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: unit-${{ matrix.suite }}-${{ github.run_attempt }}
           path: reports/
@@ -102,7 +102,7 @@ jobs:
       - run: npm run ci:browser
       - name: Upload browser reports, screenshots and traces
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: browser-${{ github.run_attempt }}
           path: |
@@ -125,7 +125,7 @@ jobs:
       - run: npm run ci:audio
       - name: Upload PCM/transport reports (no sound bank or dist)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: audio-${{ github.run_attempt }}
           path: |
