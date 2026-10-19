@@ -4,7 +4,8 @@
 
 2026-10-19 기준 main `8341e9a`, Alpha `00b4b1f`에서 시작했습니다.
 별도 `ci/pocketscore-2-pipeline` 브랜치이며 Alpha 기능 코드는 변경하지 않습니다.
-Alpha가 main에 아직 포함되지 않아 검토 PR의 초기 base는 `feat/pocketscore-2-alpha`입니다.
+Alpha PR [#3](https://github.com/ju87-super/PocketScore/pull/3)이 main에 아직 포함되지 않아
+검토 PR의 초기 base는 `feat/pocketscore-2-alpha`입니다.
 Alpha를 먼저 병합했다면 CI PR의 base를 main으로 바꾸세요. 여기서 main을 병합하거나
 저장소 공개 범위·보호 규칙·Pages 설정을 자동 변경하지 않습니다.
 
