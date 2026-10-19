@@ -1,5 +1,10 @@
 # 개발 환경
 
+현재 기본 앱은 **2.0 Alpha**입니다. [Alpha 기능·파일·음원·제한 사항](pocketscore2-alpha.md)을
+먼저 확인하세요. 아래 Prototype 설명은 보존된 `/PocketScore/legacy/`에도 적용됩니다.
+Alpha에는 프로젝트 JSON 저장/불러오기, 제한된 MusicXML, 실제 MS Basic SF3 재생이
+있습니다. 첫 재생은 51.3MB 음원을 지연 로드합니다. 자동 저장/오프라인 캐시는 미구현입니다.
+
 PocketScore Prototype 0.1: 처음에는 4/4박자 악보 4마디를 표시하고 기존 음표와 쉼표를
 편집합니다. README.md와 AGENTS.md는 보존합니다.
 

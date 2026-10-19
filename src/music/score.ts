@@ -7,13 +7,15 @@ import type { TimeSignature } from './settings'
 
 type EventBase = Readonly<{ id: string; start: Rational; duration: Rational }>
 export type RhythmEvent = EventBase & (
-  | Readonly<{ kind: 'note'; pitch: Pitch }>
+  | Readonly<{ kind: 'note'; pitch: Pitch; chord?: readonly Pitch[] }>
   | Readonly<{ kind: 'rest' }>
 )
 export type Voice = Readonly<{ id: string; events: readonly RhythmEvent[] }>
 export type Measure = Readonly<{ id: string; voices: readonly Voice[] }>
 export type Score = Readonly<{ keySignature: number; timeSignature: TimeSignature; measures: readonly Measure[] }>
-export type Selection = Readonly<{ measureId: string; voiceId: string; eventId: string }>
+export type Selection = Readonly<{ measureId: string; voiceId: string; eventId: string; pitchIndex?: number }>
+
+export const eventPitches = (event: RhythmEvent): readonly Pitch[] => event.kind === 'note' ? [event.pitch, ...(event.chord ?? [])] : []
 
 // Durations are whole-note fractions, including a single dot. No floating-point timing.
 export const DURATIONS = [fraction(1, 16), fraction(1, 8), fraction(3, 16), fraction(1, 4), fraction(3, 8), fraction(1, 2), fraction(3, 4), WHOLE]
@@ -53,8 +55,8 @@ export function validateScore(score: Score): string[] {
         ids.add(event.id)
         if (!equal(event.start, end)) errors.push('이벤트 시작 시점이 연속적이지 않습니다.')
         if (!DURATIONS.some(duration => equal(duration, event.duration))) errors.push('지원하지 않는 길이')
-        if (event.kind === 'note' && (!STEPS.includes(event.pitch.step) || !Number.isInteger(event.pitch.octave)
-          || ![-1, 0, 1].includes(event.pitch.alter) || midi(event.pitch) < 36 || midi(event.pitch) > 96)) errors.push('잘못된 음높이')
+        for (const pitch of eventPitches(event)) if (!STEPS.includes(pitch.step) || !Number.isInteger(pitch.octave)
+          || ![-1, 0, 1].includes(pitch.alter) || midi(pitch) < 36 || midi(pitch) > 96) errors.push('잘못된 음높이')
         end = add(end, event.duration)
       }
       if (!equal(end, measureDuration(score.timeSignature))) errors.push(`${measure.id}/${voice.id}: 박자 합계 ${formatFraction(end)} (${score.timeSignature} 필요)`)
@@ -127,16 +129,26 @@ export function resizeEvent(score: Score, selection: Selection, duration: Ration
 export function transposeEvent(score: Score, selection: Selection, amount: number, chromatic = false): Score {
   const { voice, index, event } = locate(score, selection)
   if (event.kind === 'rest' || amount === 0) return score
-  const pitch = movePitch(event.pitch, amount, chromatic, score.keySignature)
-  return replaceVoice(score, selection, voice.events.map((item, i) => i === index ? { ...event, pitch } : item))
+  const pitches = [...eventPitches(event)]
+  const tone = selection.pitchIndex ?? 0
+  if (!pitches[tone]) throw new Error('선택한 화음 구성음을 찾을 수 없습니다.')
+  pitches[tone] = movePitch(pitches[tone], amount, chromatic, score.keySignature)
+  if (new Set(pitches.map(midi)).size !== pitches.length) throw new Error('화음에 같은 음높이가 이미 있습니다.')
+  return replaceVoice(score, selection, voice.events.map((item, i) => i === index ? { ...event, pitch: pitches[0], chord: pitches.slice(1) } : item))
 }
 
 export function setAccidental(score: Score, selection: Selection, alter: Pitch['alter']): Score {
   const { voice, index, event } = locate(score, selection)
-  if (event.kind === 'rest' || event.pitch.alter === alter) return score
+  if (event.kind === 'rest') return score
+  const pitches = [...eventPitches(event)]
+  const tone = selection.pitchIndex ?? 0
+  if (!pitches[tone]) throw new Error('선택한 화음 구성음을 찾을 수 없습니다.')
+  if (pitches[tone].alter === alter) return score
   if (![-1, 0, 1].includes(alter)) throw new Error('지원하지 않는 임시표입니다.')
+  pitches[tone] = { ...pitches[tone], alter }
+  if (new Set(pitches.map(midi)).size !== pitches.length) throw new Error('화음에 같은 음높이가 이미 있습니다.')
   return replaceVoice(score, selection, voice.events.map((item, i) => i === index
-    ? { ...event, pitch: { ...event.pitch, alter } } : item))
+    ? { ...event, pitch: pitches[0], chord: pitches.slice(1) } : item))
 }
 
 export function setKeySignature(score: Score, keySignature: number): Score {

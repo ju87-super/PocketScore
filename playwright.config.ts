@@ -5,7 +5,7 @@ export default defineConfig({
   fullyParallel: true,
   workers: process.env.CI ? 2 : 1,
   use: {
-    baseURL: 'http://127.0.0.1:4173/PocketScore/',
+    baseURL: 'http://127.0.0.1:4173/PocketScore/legacy/',
     viewport: { width: 1280, height: 900 },
     browserName: 'chromium',
     launchOptions: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
