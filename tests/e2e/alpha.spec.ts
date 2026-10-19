@@ -210,19 +210,40 @@ test('Alpha reflows signatures on portrait/zoom and traverses to another instrum
   await page.screenshot({ path: 'test-results/alpha-portrait.png', fullPage: true })
 })
 
-test('Alpha each instrument emits real audio, and loop/metronome survive transport reuse', { tag: '@audio' }, async ({ page }) => {
+test('Alpha each instrument emits real audio, and loop/metronome survive transport reuse', { tag: '@audio' }, async ({ page }, testInfo) => {
   test.setTimeout(120000)
   const source = createProject()
   // Short, independent scores exercise the same synth/transport across edits.
   for (const part of source.parts) {
-    const project = { ...source, parts: [{ ...part, staves: part.staves.map(staff => ({ ...staff, score: { ...staff.score, measures: staff.score.measures.slice(0, 1) } })) }], tempos: [{ measure: 0, bpm: 120 }] }
-    await open(page, serializeProject(project))
-    await expect(page.getByLabel('악보 제목')).toHaveValue(project.title)
-    await expect(page.locator('.staff-card')).toHaveCount(1)
-    await page.getByRole('button', { name: '재생', exact: true }).click()
-    await expect.poll(async () => Number(await page.getByLabel('출력 진폭').textContent()), { timeout: 90000 }).toBeGreaterThan(0.001)
-    await page.getByRole('button', { name: '정지', exact: true }).click()
-    await expect.poll(async () => Number(await page.getByLabel('출력 진폭').textContent())).toBe(0)
+    await test.step(`real PCM from ${part.instrument}`, async () => {
+      const project = { ...source, parts: [{ ...part, staves: part.staves.map(staff => ({ ...staff, score: { ...staff.score, measures: staff.score.measures.slice(0, 1) } })) }], tempos: [{ measure: 0, bpm: 120 }] }
+      await open(page, serializeProject(project))
+      await expect(page.getByLabel('악보 제목')).toHaveValue(project.title)
+      await expect(page.locator('.staff-card')).toHaveCount(1)
+      // The title/count are shared by every fixture. Wait for the actual imported
+      // instrument, then capture every meter update before playback starts. A
+      // one-second poll can miss the sole short drum/bass transient entirely.
+      await expect(page.locator('.staff-card')).toContainText(part.name)
+      const output = await page.getByLabel('출력 진폭').evaluateHandle(element => {
+        const evidence = { peak: 0, samples: [] as number[] }
+        const observer = new MutationObserver(() => {
+          const value = Number(element.textContent)
+          evidence.peak = Math.max(evidence.peak, value)
+          evidence.samples.push(value)
+        })
+        observer.observe(element, { subtree: true, characterData: true, childList: true })
+        return { evidence, observer }
+      })
+      try {
+        await page.getByRole('button', { name: '재생', exact: true }).click()
+        await expect.poll(() => output.evaluate(state => state.evidence.peak), { timeout: 90000 }).toBeGreaterThan(0.001)
+      } finally {
+        await testInfo.attach(`pcm-${part.instrument}.json`, { body: JSON.stringify(await output.evaluate(state => { state.observer.disconnect(); return state.evidence })), contentType: 'application/json' })
+        await output.dispose()
+      }
+      await page.getByRole('button', { name: '정지', exact: true }).click()
+      await expect.poll(async () => Number(await page.getByLabel('출력 진폭').textContent())).toBe(0)
+    })
   }
   await page.getByLabel('반복', { exact: true }).check()
   await page.getByRole('button', { name: '재생', exact: true }).click()

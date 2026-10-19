@@ -11,9 +11,16 @@ async function saved(page: Page): Promise<Project> {
 }
 async function point(page: Page, id: string) {
   const target = page.locator(`[data-event-id="${id}"]`)
-  await target.scrollIntoViewIfNeeded()
-  const box = (await target.boundingBox())!
-  return { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+  let origin!: { x: number; y: number }
+  // ResizeObserver may replace SVG nodes after the palette changes width.
+  // Wait for a live target before sending input; never repeat the gesture.
+  await expect(async () => {
+    await target.scrollIntoViewIfNeeded()
+    const box = await target.boundingBox()
+    expect(box).not.toBeNull()
+    origin = { x: box!.x + box!.width / 2, y: box!.y + box!.height / 2 }
+  }).toPass({ timeout: 5000 })
+  return origin
 }
 test.beforeEach(async ({ page }) => {
   await page.goto('/PocketScore/')
