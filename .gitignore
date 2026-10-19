@@ -4,6 +4,7 @@ coverage/
 test-results/
 playwright-report/
 .cache/
+reports/
 *.tsbuildinfo
 *.log
 .env

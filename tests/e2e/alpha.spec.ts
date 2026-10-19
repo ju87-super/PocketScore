@@ -137,7 +137,7 @@ test('Alpha imports valid MusicXML and refuses unsupported notation without chan
   expect(await save(page)).toEqual(before)
 })
 
-test('Alpha plays real bundled SF3 PCM, pauses, seeks, stops and restarts without residual output', async ({ page }) => {
+test('Alpha plays real bundled SF3 PCM, pauses, seeks, stops and restarts without residual output', { tag: '@audio' }, async ({ page }) => {
   test.setTimeout(120000)
   await page.getByRole('button', { name: '재생', exact: true }).click()
   await expect(page.getByRole('button', { name: '일시정지', exact: true })).toBeVisible({ timeout: 90000 })
@@ -163,7 +163,7 @@ test('Alpha plays real bundled SF3 PCM, pauses, seeks, stops and restarts withou
   await page.getByRole('button', { name: '정지', exact: true }).click()
 })
 
-test('Alpha stop during initial sound download prevents deferred autoplay', async ({ page }) => {
+test('Alpha stop during initial sound download prevents deferred autoplay', { tag: '@audio' }, async ({ page }) => {
   test.setTimeout(120000)
   let release!: () => void
   const gate = new Promise<void>(resolve => { release = resolve })
@@ -179,7 +179,7 @@ test('Alpha stop during initial sound download prevents deferred autoplay', asyn
   await expect.poll(async () => Number(await page.getByLabel('출력 진폭').textContent())).toBe(0)
 })
 
-test('Alpha reports a missing sound asset and retries with a fresh audio context', async ({ page }) => {
+test('Alpha reports a missing sound asset and retries with a fresh audio context', { tag: '@audio' }, async ({ page }) => {
   test.setTimeout(120000)
   await page.route('**/audio/MSBasic.sf3', route => route.fulfill({ status: 404, body: 'missing' }))
   await page.getByRole('button', { name: '재생', exact: true }).click()
@@ -210,7 +210,7 @@ test('Alpha reflows signatures on portrait/zoom and traverses to another instrum
   await page.screenshot({ path: 'test-results/alpha-portrait.png', fullPage: true })
 })
 
-test('Alpha each instrument emits real audio, and loop/metronome survive transport reuse', async ({ page }) => {
+test('Alpha each instrument emits real audio, and loop/metronome survive transport reuse', { tag: '@audio' }, async ({ page }) => {
   test.setTimeout(120000)
   const source = createProject()
   // Short, independent scores exercise the same synth/transport across edits.
