@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 
 // SVG/font layout is tested in real Chromium; these tests isolate React input handling.
-vi.mock('./notation/renderScore', () => ({ renderScore: vi.fn() }))
+vi.mock('./notation/renderScore', () => ({ renderScore: vi.fn(), disposeScoreRenderer: vi.fn() }))
 beforeEach(() => vi.stubGlobal('ResizeObserver', class {
   observe() {}
   disconnect() {}

@@ -21,6 +21,7 @@
   "dependencies": {
     "react": "19.3.1",
     "react-dom": "19.3.1",
+    "spessasynth_lib": "4.3.14",
     "vexflow": "5.0.0"
   },
   "devDependencies": {

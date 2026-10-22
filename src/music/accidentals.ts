@@ -1,5 +1,6 @@
 import type { Pitch } from './pitch'
 import { compare, equal } from './rational'
+import { eventPitches } from './score'
 import type { Measure } from './score'
 import { keyAlter } from './settings'
 
@@ -8,8 +9,9 @@ import { keyAlter } from './settings'
 export function measureAccidentals(measure: Measure, key: number): Map<string, Pitch['alter']> {
   const result = new Map<string, Pitch['alter']>()
   const active = new Map<string, Pitch['alter'] | null>()
-  const notes = measure.voices.flatMap(voice => voice.events)
-    .filter(event => event.kind === 'note').sort((a, b) => compare(a.start, b.start))
+  const notes = measure.voices.flatMap(voice => voice.events.flatMap(event => eventPitches(event).map((pitch, index) => ({
+    id: index === 0 ? event.id : `${event.id}:${index}`, start: event.start, pitch,
+  })))).sort((a, b) => compare(a.start, b.start))
   for (let index = 0; index < notes.length;) {
     let end = index + 1
     while (end < notes.length && equal(notes[index].start, notes[end].start)) end++

@@ -5,16 +5,20 @@ export default defineConfig({
   fullyParallel: true,
   workers: process.env.CI ? 2 : 1,
   use: {
-    baseURL: 'http://127.0.0.1:4173/PocketScore/',
+    baseURL: 'http://127.0.0.1:4173/PocketScore/legacy/',
     viewport: { width: 1280, height: 900 },
     browserName: 'chromium',
     launchOptions: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
       ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH }
       : {},
   },
-  webServer: {
+  webServer: [{
     command: 'npm run preview -- --host 127.0.0.1 --port 4173 --strictPort',
     url: 'http://127.0.0.1:4173/PocketScore/',
     reuseExistingServer: false,
-  },
+  }, {
+    command: 'node scripts/serve-fixture.mjs',
+    url: 'http://127.0.0.1:4176/tests/performance/index.html',
+    reuseExistingServer: false,
+  }],
 })
