@@ -26,7 +26,7 @@ test('required CI preserves check, all four deterministic groups, reports and fa
   const ci = await workflow('ci')
   assert.equal(ci.name, 'Validate')
   assert.ok(ci.on.pull_request !== undefined)
-  assert.ok(ci.on.push.branches.includes('main'))
+  assert.deepEqual(ci.on.push.branches, ['main'], 'PR validation must not be duplicated by feature-branch push runs')
   assert.equal(ci.jobs.check.name, 'check')
   assert.equal(ci.jobs.check.if, 'always()')
   assert.deepEqual(ci.jobs.check.needs, ['quality', 'unit', 'browser', 'audio'])
