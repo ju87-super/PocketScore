@@ -31,6 +31,9 @@ PR, main Push, 수동 실행에서 동작합니다. 초기 PR API 차단 시 사
 matrix는 `fail-fast: false`로 다른 음악 검사의 결과도 남깁니다.
 `continue-on-error`와 자동 재시도를 사용하지 않습니다. Playwright는 `.only`를 CI에서
 거부하고, 실패 screenshot·trace, HTML/JUnit/JSON을 남깁니다.
+일반 브라우저·음원 job의 Chromium 설치는 별도 5분 제한과
+`reports/setup/playwright-install.log`를 둡니다. 설치 실패는 실패로 유지하고,
+전체 job timeout 전에 Artifacts에 설치 진단을 업로드할 수 있게 합니다.
 
 `.github/actions/setup-node`는 `.nvmrc`와 `packageManager`의 정확한 버전을 검사하고
 필요하면 고정 npm을 설치합니다. setup-node의 npm 다운로드 캐시를 사용하고

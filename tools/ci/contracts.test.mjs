@@ -46,6 +46,12 @@ test('required CI preserves check, all four deterministic groups, reports and fa
   }
   assert.match(ci.jobs.browser.steps[0].with['sparse-checkout'], /!\/public\/audio\/\*\.sf3/)
   assert.equal(ci.jobs.audio.steps[0].with['sparse-checkout'], undefined)
+  for (const name of ['browser', 'audio']) {
+    const install = ci.jobs[name].steps.find(step => step.run?.includes('npx playwright install'))
+    assert.ok(install['timeout-minutes'] > 0 && install['timeout-minutes'] < ci.jobs[name]['timeout-minutes'])
+    assert.match(install.run, /set -o pipefail/)
+    assert.match(install.run, /tee reports\/setup\/playwright-install\.log/)
+  }
 })
 
 for (const status of ['success', 'failure', 'cancelled', 'skipped', 'missing']) {

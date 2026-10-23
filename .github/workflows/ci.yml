@@ -98,7 +98,13 @@ jobs:
             /*
             !/public/audio/*.sf3
       - uses: ./.github/actions/setup-node
-      - run: npx playwright install --with-deps chromium
+      - name: Install Chromium with bounded setup logs
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p reports/setup
+          npx playwright install --with-deps chromium 2>&1 | tee reports/setup/playwright-install.log
       - run: npm run ci:browser
       - name: Upload browser reports, screenshots and traces
         if: always()
@@ -121,7 +127,13 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-node
-      - run: npx playwright install --with-deps chromium
+      - name: Install Chromium with bounded setup logs
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p reports/setup
+          npx playwright install --with-deps chromium 2>&1 | tee reports/setup/playwright-install.log
       - run: npm run ci:audio
       - name: Upload PCM/transport reports (no sound bank or dist)
         if: always()

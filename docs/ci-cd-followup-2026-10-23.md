@@ -2,8 +2,9 @@
 
 날짜와 실행 시작 시각은 한국 시간(Asia/Seoul)입니다. main `8bc1021`과 열린 PR #2/#4를
 확인한 후 기존 `ci/pocketscore-2-pipeline`에서 작업했습니다. main의 파일 내용은
-Alpha `00b4b1f`와 같았습니다. 이 기록의 최종 코드 커밋은 `bad11f5`이며 보고서는 후속
-문서 커밋입니다. PR 생성·base 변경·main 병합·Pages 배포·보호 정책 변경은 하지 않았습니다.
+Alpha `00b4b1f`와 같았습니다. 아래 정상 실행은 코드 커밋 `bad11f5`를 검증합니다.
+이후 Chromium 설치의 단계 제한·로그 수집도 추가했고 최신 실행은 브랜치 목록에 남습니다.
+PR 생성·base 변경·main 병합·Pages 배포·보호 정책 변경은 하지 않았습니다.
 
 ## 변경
 
@@ -20,6 +21,11 @@ Alpha `00b4b1f`와 같았습니다. 이 기록의 최종 코드 커밋은 `bad11
 - PR #4가 열린 이후 불필요해진 `ci/**` Push 검증을 제거했습니다. 필수 검증은
   PR·main Push·수동 실행으로 유지하고 같은 PR의 오래된 실행은 취소합니다.
   별도 브랜치 Push와 PR 이벤트로 같은 커밋을 두 번 검사하는 큐 낭비를 줄였습니다.
+- 문서 커밋 검증 [39893399342](https://github.com/ju87-super/PocketScore/actions/runs/39893399342)의
+  브라우저 작업이 Chromium 의존성 설치에서 오래 대기하는 것을 관찰했습니다. 테스트가
+  실행되기 전의 설치 대기이며 이를 회귀 테스트 실패로 단정하지 않았습니다.
+  일반 UI/오디오 job에 설치 단계 5분 제한과 `playwright-install.log`를 추가해, 향후
+  설치 실패 시 job의 전체 timeout 전에 Artifacts로 원인을 남기도록 보완했습니다.
 
 ## 실제 Actions
 
