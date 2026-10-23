@@ -4,16 +4,18 @@
 
 2026-10-19 기준 main `8341e9a`, Alpha `00b4b1f`에서 시작했습니다.
 별도 `ci/pocketscore-2-pipeline` 브랜치이며 Alpha 기능 코드는 변경하지 않습니다.
-Alpha PR [#3](https://github.com/ju87-super/PocketScore/pull/3)이 main에 아직 포함되지 않아
-검토 PR의 초기 base는 `feat/pocketscore-2-alpha`입니다.
-Alpha를 먼저 병합했다면 CI PR의 base를 main으로 바꾸세요. 여기서 main을 병합하거나
-저장소 공개 범위·보호 규칙·Pages 설정을 자동 변경하지 않습니다.
+검토 PR의 초기 base는 `feat/pocketscore-2-alpha`였습니다. 2026-10-22에 Alpha PR
+[#3](https://github.com/ju87-super/PocketScore/pull/3)이 main `8bc1021`에 병합됐습니다.
+현재 CI PR [#4](https://github.com/ju87-super/PocketScore/pull/4)는 열려 있으며, 소유자가
+base를 main으로 변경하면 됩니다. 여기서 main 병합·PR 생성·저장소 공개 범위·보호 규칙·
+Pages 설정 변경을 수행하지 않습니다.
 
 ## 필수 CI: Validate
 
-PR, main Push, `ci/**` Push, 수동 실행에서 동작합니다. `ci/**`는 PR API 없이도
-이번 CI 브랜치를 실제 검증하는 부트스트랩 경로입니다. 같은 PR/브랜치의 이전 실행은
-취소합니다. 필수 검사 이름 **`check`**는 기존 이름을 유지합니다.
+PR, main Push, 수동 실행에서 동작합니다. 초기 PR API 차단 시 사용했던 `ci/**` Push
+부트스트랩은 PR #4가 열린 뒤 제거했습니다. feature Push와 PR 이벤트가 같은 커밋의
+필수 검사를 중복 실행하지 않습니다. 같은 PR/브랜치의 이전 실행은 취소하며,
+필수 검사 이름 **`check`**는 기존 이름을 유지합니다.
 
 | 검사 | 실행 내용 | timeout |
 | --- | --- | --- |
@@ -112,8 +114,13 @@ POCKETSCORE_EXPECTED_SHA=$(git rev-parse HEAD) PLAYWRIGHT_CHROMIUM_EXECUTABLE_PA
   고정 MSCZ 로드, Qt 키보드 C4→D4 편집·저장, 재로드·D4→C4 저장 데이터를 검사.
 - 각 단계는 `passed`/`failed`/`not_run`으로 기록합니다. 저장 callback이나 Qt 키보드
   동작이 준비되지 않았으면 실패하며 가짜 bridge/fixture WASM으로 통과시키지 않습니다.
-- 공개 편집 JS API가 없어 실제 Qt 키보드를 쓰는 **미검증 실험 경로**입니다. 현재
-  클라우드에는 Qt WASM/Emscripten이 없어 이 빌드·런타임 성공을 보고하지 않습니다.
+- `build-status.json`은 preflight/toolchain/configure/compile/artifacts를 구분합니다.
+  실패 exit code를 보존하고 뒤 단계는 `not_run`으로 남깁니다. 실패한 단계의 마지막
+  로그는 GitHub 오류 annotation에도 기록해 artifact를 열지 않아도 원인을 확인할 수 있습니다.
+- 공개 편집 JS API가 없어 실제 Qt 키보드를 쓰는 **미검증 실험 경로**입니다.
+  2026-10-23 실제 Actions에서 Qt/Emscripten과 C→WASM 실행 검사는 통과했지만,
+  v4.7.5 web appshell의 `Unknown CMake command "declare_module"`로 configure가
+  실패했습니다. MuseScore 엔진 산출물·브라우저 실행·편집/저장은 검증하지 못했습니다.
 - build timeout 120분, runtime 15분, 병렬 컴파일 2개. 결과/trace는 보존하되 일반 PR을
   이 실험의 toolchain 실패로 막지 않습니다. GitHub에서 처음 실행한 로그로 의존성을
   안정화한 뒤, 장기적으로 명시적인 C++ 편집/serialize bridge로 대체합니다.
@@ -128,9 +135,16 @@ POCKETSCORE_EXPECTED_SHA=$(git rev-parse HEAD) PLAYWRIGHT_CHROMIUM_EXECUTABLE_PA
    지원하는지 확인하세요. `github-pages` environment의 배포 브랜치를 main으로 제한하고
    필요한 승인 정책을 적용한 뒤 repository variable `ENABLE_PAGES_CD=true`를 설정하세요.
    이 작업에서는 Pages 설정 변경이나 실제 배포를 실행하지 않습니다.
-3. GitHub API의 CONNECT가 403이면 클라우드 환경의 네트워크 허용 도메인에
-   `api.github.com`을 추가해야 PR/Actions/Rulesets API를 사용할 수 있습니다. 기존 Git
-   프록시 인증은 재사용하며 채팅에 토큰을 보내지 마세요. 공개 웹 run 정보와 API 관리
-   기능은 접근 가능 범위가 다릅니다.
+3. GitHub API의 CONNECT가 403이면 클라우드 네트워크의 `api.github.com` 허용 여부를
+   확인하세요. 2026-10-23에는 이 연결과 PR/Actions API 인증이 정상입니다. 로그 다운로드는
+   별도 `results-receiver.actions.githubusercontent.com`을 사용하며 이 도메인의 허용 초안을
+   추가 저장했습니다. 초안 저장만으로 실행 중 환경이 바뀌지는 않습니다.
+4. `Resource not accessible by integration`은 네트워크 오류와 구분하세요. 현재 OpenAI의
+   ChatGPT Codex Connector 설치 권한과 공개 앱 권한에는 `Administration`이 없습니다.
+   main 보호 조회에 필요한 `administration=read`를 충족하지 못하며 GraphQL도 거부됩니다.
+   사용자 ADMIN 역할·Pages 배포와 별개이고, 재승인으로 추가할 요청 자체가 없습니다.
+   소유자가 GitHub 설정에서 보호 정책을 직접 적용해야 합니다. Git 프록시 인증은
+   재사용하며 채팅에 토큰을 보내지 마세요.
 
 최종 실행 수치·시간·원격 실행 링크/차단 사항은 [검증 보고](ci-cd-results.md)에 기록합니다.
+2026-10-23 이후 실제 WASM 빌드 시도와 후속 검증은 [후속 보고](ci-cd-followup-2026-10-23.md)를 확인하세요.
