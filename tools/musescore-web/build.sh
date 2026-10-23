@@ -24,6 +24,10 @@ actual="$(git -C "$source_dir" rev-parse HEAD)"
 if [ "$actual" != "$expected" ]; then echo "Expected MuseScore $expected, found $actual" >&2; exit 1; fi
 if [ ! -f "$qt_root/lib/cmake/Qt6/qt.toolchain.cmake" ]; then echo "Missing Qt WASM toolchain in $qt_root" >&2; exit 1; fi
 mkdir -p "$build_dir" "$output_dir"
+# Upstream install.js and Emscripten's generated smoke are CommonJS. Do not
+# inherit PocketScore's type=module or change its application package manifest.
+log_file="$report_dir/node-boundaries.log"
+node "$script_dir/isolate-commonjs.mjs" "$source_dir" "$build_dir" "$report_dir" 2>&1 | tee "$log_file"
 phase=toolchain
 log_file="$report_dir/emscripten.log"
 emcc --version 2>&1 | tee "$log_file"
