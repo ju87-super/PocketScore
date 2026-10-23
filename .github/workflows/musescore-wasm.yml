@@ -54,7 +54,10 @@ jobs:
           modules: 'qt5compat qtshadertools'
           cache: true
       - name: Build actual app-web and execute compiled toolchain smoke
-        run: bash tools/musescore-web/build.sh
+        run: |
+          mkdir -p reports/wasm
+          node --test tools/musescore-web/verify-qt.test.mjs 2>&1 | tee reports/wasm/qt-metadata-tests.log
+          bash tools/musescore-web/build.sh
       - name: Upload actual engine artifacts and license/source references
         uses: actions/upload-artifact@v6
         with:

@@ -28,7 +28,8 @@ phase=toolchain
 log_file="$report_dir/emscripten.log"
 emcc --version 2>&1 | tee "$log_file"
 test "$(emcc -dumpversion)" = '4.0.7'
-node -e 'const fs=require("node:fs"); if(!fs.readFileSync(process.env.QT_ROOT_DIR+"/lib/cmake/Qt6Core/Qt6CoreConfigVersion.cmake","utf8").includes("6.10.2")) process.exit(1)'
+log_file="$report_dir/qt-version.log"
+cmake -P "$script_dir/verify-qt.cmake" 2>&1 | tee "$log_file"
 cmake --version | tee "$report_dir/cmake.log"
 node --version | tee "$report_dir/node.log"
 printf '#include <stdio.h>\nint main(void){puts("EMSCRIPTEN_OK");return 0;}\n' > "$report_dir/toolchain.c"
