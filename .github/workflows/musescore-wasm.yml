@@ -1,0 +1,115 @@
+name: Experimental MuseScore WASM
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: musescore-wasm-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Qt and Emscripten build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      MUSESCORE_SOURCE: ${{ github.workspace }}/.cache/musescore-source
+      MUSESCORE_BUILD: ${{ github.workspace }}/.cache/musescore-wasm-build
+      MUSESCORE_WEB_OUTPUT: ${{ github.workspace }}/.cache/musescore-web
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/public/audio/*.sf3
+      - uses: ./.github/actions/setup-node
+      - uses: actions/checkout@v5
+        with:
+          repository: musescore/MuseScore
+          ref: 3654226c2e99289916916953a98e585a3d3b315a
+          path: .cache/musescore-source
+          persist-credentials: false
+          submodules: recursive
+      - name: Install native build prerequisites
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build ccache pkg-config build-essential libgl1-mesa-dev libxkbcommon-dev
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
+        with:
+          version: '4.0.7'
+          actions-cache-folder: emsdk-cache
+      # Versions match the actual v4.7.5 upstream wasm workflow/setup source.
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.10.2'
+          host: all_os
+          target: wasm
+          arch: wasm_singlethread
+          modules: 'qt5compat qtshadertools'
+          cache: true
+      - name: Build actual app-web and execute compiled toolchain smoke
+        run: |
+          mkdir -p reports/wasm
+          node --test tools/musescore-web/verify-qt.test.mjs 2>&1 | tee reports/wasm/qt-metadata-tests.log
+          bash tools/musescore-web/build.sh
+      - name: Upload actual engine artifacts and license/source references
+        uses: actions/upload-artifact@v6
+        with:
+          name: musescore-web-engine
+          path: .cache/musescore-web/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 1
+      - name: Preserve build logs even when compilation fails
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: wasm-build-reports
+          path: |
+            reports/
+            .cache/musescore-wasm-build/CMakeCache.txt
+            .cache/musescore-wasm-build/CMakeFiles/CMakeConfigureLog.yaml
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Report build scope
+        if: always()
+        run: echo 'Build/artifact checks do not prove engine startup, editing or persistence. The separate runtime job must pass.' >> "$GITHUB_STEP_SUMMARY"
+  runtime:
+    name: Real browser engine edit and save
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      MUSESCORE_WEB_OUTPUT: ${{ github.workspace }}/.cache/musescore-web
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/public/audio/*.sf3
+      - uses: ./.github/actions/setup-node
+      - uses: actions/download-artifact@v7
+        with:
+          name: musescore-web-engine
+          path: .cache/musescore-web
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test --config tests/wasm/playwright.config.ts
+      - name: Upload staged runtime evidence and failed traces
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: wasm-runtime-reports
+          path: |
+            reports/
+            test-results/
+          if-no-files-found: warn
+          retention-days: 14

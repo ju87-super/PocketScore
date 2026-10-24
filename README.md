@@ -15,6 +15,7 @@ npm run dev
 
 - [Alpha 기능·검증·제한 사항](docs/pocketscore2-alpha.md)
 - [개발 환경과 검사 명령](docs/development.md)
+- [CI/CD 구조·실행·GitHub 설정](docs/ci-cd.md)
 - [음원 출처와 라이선스](THIRD-PARTY.md)
 
 MuseScore Studio 4.7.5를 참고한 React/VexFlow UI이며 MuseScore C++/Qt 엔진이나

@@ -4,28 +4,165 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      failure_probe:
+        description: 'Intentionally fail Code Quality to verify that check blocks merging and CD'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: validate-${{ github.ref }}
+  group: validate-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+  quality:
+    name: Code Quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-node@v6
         with:
-          node-version-file: .nvmrc
-          cache: npm
-      - run: npm ci
-      - run: npm run typecheck
-      - run: npm run lint
-      - run: npm test
-      - run: npm run build
-      - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/public/audio/*.sf3
+      - uses: ./.github/actions/setup-node
+      - name: Typecheck, lint, contracts, lockfile and production build
+        run: npm run ci:quality
+      - name: Deliberate failure probe
+        if: github.event_name == 'workflow_dispatch' && inputs.failure_probe
+        run: |
+          node -e 'console.error("Intentional failure: check and CD must reject this run"); process.exit(1)'
+      - name: Upload quality reports and logs
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: quality-${{ github.run_attempt }}
+          path: reports/
+          if-no-files-found: warn
+          retention-days: 14
+
+  unit:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: music
+            name: Music Engine Tests
+          - suite: input
+            name: Input and Gesture Tests
+          - suite: playback
+            name: Playback Timing Tests
+          - suite: musicxml
+            name: MusicXML Compatibility
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/public/audio/*.sf3
+      - uses: ./.github/actions/setup-node
+      - name: Run deterministic suite
+        env:
+          CI_SUITE: ${{ matrix.suite }}
+        run: node tools/ci/run.mjs "$CI_SUITE"
+      - name: Upload test reports and failure logs
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: unit-${{ matrix.suite }}-${{ github.run_attempt }}
+          path: reports/
+          if-no-files-found: warn
+          retention-days: 14
+
+  browser:
+    name: Browser E2E
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/public/audio/*.sf3
+      - uses: ./.github/actions/setup-node
+      - name: Install Chromium with bounded setup logs
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p reports/setup
+          npx playwright install --with-deps chromium 2>&1 | tee reports/setup/playwright-install.log
+      - run: npm run ci:browser
+      - name: Upload browser reports, screenshots and traces
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: browser-${{ github.run_attempt }}
+          path: |
+            reports/
+            test-results/
+          if-no-files-found: warn
+          retention-days: 14
+
+  audio:
+    name: SoundFont Integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      # Only this ordinary CI job needs the actual 51.3MB sound bank.
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-node
+      - name: Install Chromium with bounded setup logs
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p reports/setup
+          npx playwright install --with-deps chromium 2>&1 | tee reports/setup/playwright-install.log
+      - run: npm run ci:audio
+      - name: Upload PCM/transport reports (no sound bank or dist)
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: audio-${{ github.run_attempt }}
+          path: |
+            reports/
+            test-results/
+          if-no-files-found: warn
+          retention-days: 14
+
+  check:
+    # Preserve the original required name; skipped/cancelled work must fail it.
+    name: check
+    if: always()
+    needs: [quality, unit, browser, audio]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Require every validation job to succeed
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          node --input-type=module <<'JS'
+          import { appendFileSync } from 'node:fs';
+          const jobs = JSON.parse(process.env.RESULTS);
+          const rows = Object.entries(jobs).map(([name, job]) => `| ${name} | ${job.result} |`);
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## Required CI\n\n| Job | Result |\n|---|---|\n${rows.join('\n')}\n\nTuplet/tie performance is not implemented; rejection fixtures do not prove playback support. Actual Galaxy Tab and MuseScore GUI checks remain manual.\n`);
+          const expected = ['quality', 'unit', 'browser', 'audio'];
+          if (Object.keys(jobs).length !== expected.length || expected.some(name => jobs[name]?.result !== 'success')) process.exit(1);
+          JS

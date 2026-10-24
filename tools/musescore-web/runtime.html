@@ -1,0 +1,15 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Actual MuseScore WASM runtime check</title>
+<style>html,body,#screen{margin:0;width:100%;height:100%}</style><div id="screen"></div>
+<script src="MuseScoreStudio.js"></script>
+<script type="module">
+import createMuApi from './distr/muapi.js';
+window.wasmEvidence = { initialized: false, saved: [], errors: [] };
+try {
+  window.muapi = await createMuApi({ screen: document.querySelector('#screen'),
+    soundFont: new URL('sound/MS%20Basic.sf3', location.href).href,
+    onLoaded: () => { window.wasmEvidence.initialized = true; },
+    onExit: data => { window.wasmEvidence.errors.push(JSON.stringify(data)); },
+    onProjectSaved: data => { window.wasmEvidence.saved.push(Array.from(new Uint8Array(data))); },
+  });
+} catch (error) { window.wasmEvidence.errors.push(String(error)); }
+</script></html>

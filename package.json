@@ -15,6 +15,13 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "ci:quality": "node tools/ci/run.mjs quality",
+    "ci:music": "node tools/ci/run.mjs music",
+    "ci:input": "node tools/ci/run.mjs input",
+    "ci:playback": "node tools/ci/run.mjs playback",
+    "ci:musicxml": "node tools/ci/run.mjs musicxml",
+    "ci:browser": "node tools/ci/run.mjs browser",
+    "ci:audio": "node tools/ci/run.mjs audio",
     "build": "npm run typecheck && vite build",
     "preview": "vite preview"
   },
@@ -41,6 +48,7 @@
     "typescript": "6.0.3",
     "typescript-eslint": "8.71.2",
     "vite": "8.3.4",
-    "vitest": "5.0.5"
+    "vitest": "5.0.5",
+    "yaml": "2.8.1"
   }
 }
