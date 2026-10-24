@@ -106,6 +106,9 @@ test('group durations are disabled and horizontal pen drags cannot change either
     expect(await save(page)).toEqual(f.project)
     await expect(page.locator('.event-target[aria-pressed=true]')).toHaveCount(2)
   }
+  const drum = allSelections(f.project).find(target => target.partId === f.project.parts[3].id)!
+  await note(page, drum).click({ modifiers: ['Shift'] })
+  await expect(page.getByLabel('드럼 음', { exact: true })).toBeDisabled()
 })
 
 test('range pitch drag commits once, keeps intervals, and Escape rolls back all selected notes', async ({ page }) => {
