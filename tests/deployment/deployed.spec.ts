@@ -15,19 +15,19 @@ test('serves the validated Alpha commit, production assets, SPA fallback and wor
     const url = new URL(asset.path, baseURL)
     expect(url.origin).toBe(new URL(baseURL!).origin)
     expect(url.pathname).toMatch(/^\/PocketScore\/(assets|audio)\//)
+    // GitHub Pages/CDN can compress HTTP responses. HEAD Content-Length is
+    // the transferred (encoded) byte count, not the original SoundFont size.
+    // Check the decoded GET body against the source artifact's size and hash.
+    const response = await request.get(url.href, { timeout: 90000 })
+    expect(response.status()).toBe(200)
     if (url.pathname.endsWith('.sf3')) {
-      const response = await request.head(url.href)
-      expect(response.status()).toBe(200)
-      expect(Number(response.headers()['content-length'])).toBe(asset.bytes)
       expect(response.headers()['content-type']).not.toContain('text/html')
     } else {
-      const response = await request.get(url.href)
-      expect(response.status()).toBe(200)
       expect(response.headers()['content-type']).toMatch(url.pathname.endsWith('.css') ? /text\/css/ : /javascript/)
-      const bytes = await response.body()
-      expect(bytes.length).toBe(asset.bytes)
-      expect(createHash('sha256').update(bytes).digest('hex')).toBe(asset.sha256)
     }
+    const bytes = await response.body()
+    expect(bytes.length).toBe(asset.bytes)
+    expect(createHash('sha256').update(bytes).digest('hex')).toBe(asset.sha256)
   }
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
