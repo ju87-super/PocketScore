@@ -40,7 +40,7 @@ test('serves the validated Alpha commit, production assets, SPA fallback and wor
   await page.getByRole('button', { name: '속성', exact: true }).click()
   await page.locator('[data-event-id=m1-e1]').click()
   await page.keyboard.press('ArrowUp')
-  await expect(page.getByLabel('선택 상태')).toContainText('D4 4분음표')
+  await expect(page.getByLabel('선택 상태')).toContainText('C♯4 4분음표')
   await page.keyboard.press('Control+z')
   await expect(page.getByLabel('선택 상태')).toContainText('C4 4분음표')
   await page.screenshot({ path: testInfo.outputPath('deployed-alpha.png'), fullPage: true })

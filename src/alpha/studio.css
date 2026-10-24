@@ -1,4 +1,5 @@
-.studio { width: 100%; max-width: none; padding: 0; color: #252a34; background: #e5e8ed; min-height: 100vh; }
+.studio { width: 100%; max-width: none; padding: 0; color: #252a34; background: #e5e8ed; min-height: 100vh; user-select: none; -webkit-user-select: none; }
+.studio input, .studio textarea, .studio [contenteditable=true], .studio .help-dialog { user-select: text; -webkit-user-select: text; }
 .studio button, .studio input, .studio select, .studio summary { font: inherit; min-height: 44px; }
 .studio button, .studio select, .studio input:not([type=checkbox]):not([type=range]) { border: 1px solid #bfc6d2; border-radius: 5px; background: #fff; padding: 7px 10px; }
 .studio button:hover:not(:disabled) { background: #e2eafb; }
@@ -55,6 +56,16 @@
 .studio .score-surface:focus-visible { outline: 2px solid #3773c9; }
 .studio .selected-note text { fill: #3773c9; }
 .studio .event-target.selected { stroke: #3773c9; }
+.ensemble-system { margin: 0 0 28px; border-bottom: 1px solid #e5e3e9; padding-bottom: 12px; }
+.ensemble-system:last-child { border-bottom: 0; margin-bottom: 0; }
+.ensemble-surface { user-select: none; -webkit-user-select: none; }
+.studio .ensemble-surface .event-target.selected { fill: transparent; stroke: transparent; }
+.ensemble-surface .selected-tone, .ensemble-surface .selected-tone * { fill: #7c32a7; stroke: #7c32a7; }
+.measure-selection { fill: transparent; stroke: none; pointer-events: none; }
+.measure-selection.selected-measure { fill: #efe6f7; }
+.studio .ensemble-surface .entry-target { fill: transparent; stroke: none; pointer-events: all; cursor: default; }
+.studio .ensemble-surface .event-target { cursor: pointer; }
+.studio .ensemble-surface:focus-visible { outline: none; border-color: transparent; }
 .mixer { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px; background: #e3e9f3; }
 .mixer fieldset { min-width: 180px; padding: 8px; border: 1px solid #b8c4d8; border-radius: 5px; }
 .mixer fieldset > span { display: block; font-size: 11px; color: #536179; }
