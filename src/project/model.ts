@@ -22,7 +22,7 @@ export type Project = Readonly<{
   tempos: readonly Readonly<{ measure: number; bpm: number }>[]
   masterVolume: number
 }>
-export type ProjectSelection = Selection & Readonly<{ partId: string; staffId: string }>
+export type ProjectSelection = Selection & Readonly<{ partId: string; staffId: string; scope?: 'measure' }>
 export const uid = () => crypto.randomUUID()
 export const primaryScore = (project: Project) => project.parts[0].staves[0].score
 

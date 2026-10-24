@@ -1,6 +1,6 @@
 # PocketScore 2.0 — mandatory S Pen and keyboard editing contract
 
-Status: **must preserve and expand** the current PocketScore input model during the MuseScore Studio 4 UI / engine rewrite. The MuseScore interface is the **visual reference**, not permission to remove our gestures.
+Status: **updated by user feedback 2026-10-24**. Preserve direct pitch/duration gestures for single events. Studio now uses chromatic keyboard pitch and semantic range/list selection; the legacy editor retains its old keyboard profile. MuseScore Studio is the UI/function/sound reference and Songsterr the web-interaction reference.
 
 ## Input modalities and behavior
 
@@ -22,9 +22,11 @@ Status: **must preserve and expand** the current PocketScore input model during 
 
 | Key | Behavior |
 | --- | --- |
-| Up | Raise selected pitched note by one diatonic step |
-| Down | Lower selected pitched note by one diatonic step |
-| Shift + Up / Shift + Down | Raise / lower by semitone, with correct enharmonic/accidental spelling |
+| Up | Raise selected pitch(es) by one semitone |
+| Down | Lower selected pitch(es) by one semitone |
+| Shift + Left / Right | Extend/contract selection from its fixed time anchor |
+| Shift + click | Select inclusive time and voice/staff range; at the same onset include entire chords, even in different voices/instruments |
+| Ctrl/Cmd + click | Toggle individual pitched noteheads only, across voices/staves/instruments |
 | Left / Right | Move edit cursor to previous / next **rhythm event**, including rests and across barlines |
 | Ctrl/Cmd + Z | Undo |
 | Ctrl/Cmd + Shift + Z or Ctrl + Y | Redo |
@@ -34,6 +36,11 @@ Status: **must preserve and expand** the current PocketScore input model during 
 - Prevent keyboard shortcuts from hijacking focus in text inputs, menu controls and other widgets.
 - Preserve selected event identity and scroll it into view on navigation, including instrument/multiple-staff context.
 - Define predictable multi-note selection rules; do not silently change a chord when only one pitch is selected.
+- No Shift+Up/Down chord-component selection. Use Shift+click for the complete same-time chord column and Ctrl/Cmd+click for individual components.
+- Group pitch edits preserve intervals and are atomic. Reject the complete edit on pitch collisions or range errors. Rests and unpitched percussion retain their pitch.
+- Group selection blocks both shortening and lengthening, via controls and pointer gestures. No blue drag rectangle; selected measure backgrounds and noteheads show the selection.
+- Whole-measure selections include all voices of that staff. Ranges cross intervening voices and instrument staves, using exact musical onsets rather than SVG order.
+- Score history includes structural, pitch, duration, key/meter, title and written tempo edits. Keep current master volume and mixer presets/volume/pan/mute/solo through undo/redo, including restoration of a removed instrument.
 
 ### Touch / navigation
 
@@ -52,7 +59,7 @@ Status: **must preserve and expand** the current PocketScore input model during 
 
 1. Right/left duration direction, step snapping and minimum/maximum duration boundaries.
 2. Up/down pitch sign and diatonic intervals across B–C / E–F and key signature contexts.
-3. Shift+arrow chromatic semitone spelling.
+3. Default arrow chromatic semitone spelling, including partial chord/group edits; Shift+Left/Right range expansion and contraction.
 4. Arrow left/right traverses notes/rests and crosses barlines and part/staff boundaries predictably.
 5. Preview from original snapshot; no incremental drifting during pointer motion.
 6. Axis selection/locking, small jitter threshold and diagonal motion.
