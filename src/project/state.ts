@@ -27,7 +27,7 @@ export type ProjectAction =
   | { type: 'navigate'; direction: -1 | 1; extend?: boolean }
   | { type: 'sound'; change: (project: Project) => Project }
   | { type: 'entryMode'; enabled: boolean; selection?: ProjectSelection }
-  | { type: 'entrySettings'; settings: Partial<Pick<NoteEntry, 'duration' | 'accidental' | 'rest'>> }
+  | { type: 'entrySettings'; settings: Partial<Pick<NoteEntry, 'duration' | 'accidental' | 'rest' | 'chord'>> }
   | { type: 'entryWrite'; letter?: Pitch['step']; pitch?: Pitch; position?: EntryPosition; chord?: boolean; chordTarget?: ProjectSelection; rest?: boolean }
   | { type: 'entryVoice'; index: number; selection?: ProjectSelection }
   | { type: 'deleteSelected' }
@@ -68,7 +68,7 @@ export function projectReducer(state: ProjectState, input: ProjectAction): Proje
       const next = source.at(-1)
       if (!next) return state
       const restored = { ...next, project: restoreSound(next.project, state.sound), entry: { ...next.entry,
-        enabled: state.present.entry.enabled, duration: state.present.entry.duration, rest: state.present.entry.rest, accidental: null } }
+        enabled: state.present.entry.enabled, duration: state.present.entry.duration, rest: state.present.entry.rest, chord: state.present.entry.chord, accidental: null } }
       return action.type === 'undo'
         ? { ...state, present: restored, past: state.past.slice(0, -1), future: [...state.future, state.present], notice: '' }
         : { ...state, present: restored, past: [...state.past, state.present], future: state.future.slice(0, -1), notice: '' }
@@ -76,7 +76,7 @@ export function projectReducer(state: ProjectState, input: ProjectAction): Proje
     if (input.type === 'entryMode') {
       const target = input.selection ?? state.present.selection
       const entry = input.enabled ? beginEntry(state.present.project, state.present.entry, target)
-        : { ...state.present.entry, enabled: false, accidental: null }
+        : { ...state.present.entry, enabled: false, accidental: null, chord: false }
       return { ...state, present: { ...state.present, entry,
         ...(input.enabled && target ? { selection: target, selected: singleSelection(target) } : {}) }, notice: '' }
     }
@@ -91,7 +91,7 @@ export function projectReducer(state: ProjectState, input: ProjectAction): Proje
       const voice = staff.score.measures.find(bar => bar.id === origin.measureId)!.voices[input.index]
       const event = voice.events.find(item => compare(item.start, origin.start) >= 0) ?? voice.events.at(-1)!
       const selection = { partId: origin.partId, staffId: origin.staffId, voiceId: voice.id, measureId: origin.measureId, eventId: event.id }
-      return commit(state, { ...state.present, project, selection, selected: singleSelection(selection), entry: { ...state.present.entry, cursor: { ...origin, voiceId: voice.id }, last: null } })
+      return commit(state, { ...state.present, project, selection, selected: singleSelection(selection), entry: { ...state.present.entry, cursor: { ...origin, voiceId: voice.id }, last: null, chord: false } })
     }
     if (input.type === 'entryWrite') {
       const before = state.present

@@ -1,8 +1,17 @@
 # PocketScore 2.0 — Studio input and selection contract
 
-Status: **user override 2026-10-25**. Studio now follows MuseScore Studio 4.7.5 step-time input. This supersedes the earlier requirement for horizontal duration dragging in Studio. The legacy editor keeps its original gestures and keyboard profile. UI/sound reference: MuseScore; web interaction reference: Songsterr.
+Status: **user override 2026-10-26: graphical controls first, keyboard optional**. Studio now follows MuseScore Studio 4.7.5 step-time input. This supersedes the earlier requirement for horizontal duration dragging in Studio. The legacy editor keeps its original gestures and keyboard profile. UI/sound reference: MuseScore; web interaction reference: Songsterr.
 
-## Note entry
+## Graphical input (primary)
+
+- Follow the grouped notation toolbar, checked state and docked workspace of MuseScore Studio 4.7.5. Use our existing Bravura symbols and accessible 44px web controls.
+- Select the note-input tool, choose a duration symbol, and click/tap the staff. Show a translucent shadow note at the exact snapped onset and pitch without changing score data.
+- Select the chord tool after entering/selecting a note and tap other heights in that bar to stack tones. No modifier key is required. The rest, dot, accidental, four voice and history buttons are directly available.
+- Return to the selection tool to edit. Properties provide whole-chord selection, semitone up/down and deletion. Preserve the earlier range/list rules and the group duration ban.
+- Left dock tabs expose real palettes/settings and instruments; right properties remain collapsible. Keep no permanent bottom input panel. Compact top file/playback tools and horizontal toolbar scrolling preserve space on small screens.
+- Keep keyboard lists inside optional help, not the default screen. Do not show interactive controls for unsupported musical features.
+
+## Keyboard input (optional)
 
 | Input | Behavior |
 | --- | --- |
@@ -17,7 +26,7 @@ Status: **user override 2026-10-25**. Studio now follows MuseScore Studio 4.7.5 
 | Delete / Backspace | Remove selected pitches, using an equal-length rest if none remain |
 
 - Input has a visible caret. Durations, accidental choice, reference pitch and cursor are transient editor state, outside canonical project JSON and SVG layout.
-- Mouse/pen taps in input mode use the chosen voice's nearest existing onset and the clicked staff height. Tapping another height at an existing pitched onset adds it to the chord, without opening properties. Shift+click in input mode can also add a chord pitch; outside input mode it selects a range.
+- Mouse/pen taps in input mode use the chosen voice's nearest existing onset and the clicked staff height. Tapping another height at an existing pitched onset adds it to the chord, without opening properties. Shift+click in input mode replaces the clicked time span, following MuseScore's mouse-input controller; outside input mode it selects a range.
 - The accidental buttons choose the next input alteration. Subsequent notes follow the shared step/octave accidental state in the measure and reset at the barline. Chords do not advance time.
 - Step-time input replaces exactly its chosen time span in one voice. Other voices/staves and content outside that span are preserved. This differs from resizing an existing event, which may consume only following rests.
 - At the end of the score, the next input atomically adds a measure to every staff along with the note. One Undo removes both.
@@ -47,7 +56,7 @@ Status: **user override 2026-10-25**. Studio now follows MuseScore Studio 4.7.5 
 ## Required verification
 
 - Deterministic tests: exact cursor advancement, named pitches/octaves, chord stacking, accidental state/reset, overwrite boundaries, rest lengths, voice isolation, rejected barline/tie edits, atomic measure addition, Undo/Redo, duration dots and deletion.
-- Chromium: the actual N→5→C→Shift+E→Shift+G workflow from a blank score; mouse/pen chord entry without a properties panel; cancellation, keyboard focus, voice switching, history, portrait reflow and save/reopen.
+- Chromium: eight pointer-only workflows cover chord entry, exact dotted/rest/accidental timing, voice state, readonly shadow notes, palettes/instruments, real pen pointer-ID cancellation and 390/800px touch. Also keep the actual N→5→C→Shift+E→Shift+G workflow from a blank score; mouse/pen chord entry without a properties panel; cancellation, keyboard focus, voice switching, history, portrait reflow and save/reopen.
 - Preserve existing selection, playback, MusicXML and legacy gesture coverage. Update only Studio expectations explicitly superseded by the user's new input instruction; do not delete tests or treat unsupported features as passing.
 - Canonical data remains independent of SVG/audio/UI; all musical time stays exact rational arithmetic.
 

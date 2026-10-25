@@ -12,9 +12,9 @@ import { addMeasure } from './structure'
 export type EntryPosition = Readonly<{ partId: string; staffId: string; voiceId: string; measureId: string; start: Rational }>
 export type NoteEntry = Readonly<{
   enabled: boolean; cursor: EntryPosition | null; last: ProjectSelection | null
-  duration: Rational; reference: Pitch; accidental: Pitch['alter'] | null; rest: boolean
+  duration: Rational; reference: Pitch; accidental: Pitch['alter'] | null; rest: boolean; chord: boolean
 }>
-export const createNoteEntry = (): NoteEntry => ({ enabled: false, cursor: null, last: null, duration: fraction(1, 4), reference: { step: 'C', octave: 4, alter: 0 }, accidental: null, rest: false })
+export const createNoteEntry = (): NoteEntry => ({ enabled: false, cursor: null, last: null, duration: fraction(1, 4), reference: { step: 'C', octave: 4, alter: 0 }, accidental: null, rest: false, chord: false })
 export const ENTRY_DURATIONS: Readonly<Record<string, Rational>> = { '3': fraction(1, 16), '4': fraction(1, 8), '5': fraction(1, 4), '6': fraction(1, 2), '7': fraction(1) }
 export function dottedDuration(duration: Rational): Rational {
   const next = duration.n === 3 ? fraction(1, duration.d / 2) : fraction(duration.n * 3, duration.d * 2)
@@ -39,7 +39,7 @@ export function reconcileEntry(project: Project, entry: NoteEntry): NoteEntry {
 export function beginEntry(project: Project, entry: NoteEntry, selection: ProjectSelection | null): NoteEntry {
   const target = selection ?? allSelections(project)[0]
   const event = locate(staffAt(project, target).staff.score, target).event
-  return { ...entry, enabled: true, cursor: entryPosition(project, target), last: event.kind === 'note' ? target : null,
+  return { ...entry, enabled: true, chord: false, cursor: entryPosition(project, target), last: event.kind === 'note' ? target : null,
     reference: eventPitches(event)[target.pitchIndex ?? 0] ?? entry.reference, accidental: null }
 }
 // Accidental state belongs to a written step/octave and resets at a barline.

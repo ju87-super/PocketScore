@@ -86,9 +86,9 @@ test('Alpha pen edits pitch, ignores horizontal duration drags and supports keyb
 test('Alpha creates notes, voices and selected chord tones and reloads complete mixer/project data', async ({ page }) => {
   await menu(page, '파일', '새 악보')
   await page.getByRole('button', { name: '속성', exact: true }).click()
-  await page.getByRole('button', { name: 'N 음표 입력', exact: true }).click()
+  await page.getByRole('button', { name: '음표 입력', exact: true }).click()
   await page.locator('.event-target').first().click()
-  await page.getByRole('button', { name: 'N 음표 입력', exact: true }).click()
+  await page.getByRole('button', { name: '음표 입력', exact: true }).click()
   const note = page.locator('.event-target').first()
   await note.click()
   await page.getByRole('button', { name: '화음에 3도 추가', exact: true }).click()
@@ -99,7 +99,7 @@ test('Alpha creates notes, voices and selected chord tones and reloads complete 
   await page.keyboard.press('ArrowUp')
   await expect(page.getByLabel('화음 구성음').locator('option').first()).toHaveText(originalTone!)
   await menu(page, '추가', '성부 추가')
-  await expect(page.getByLabel('입력 성부').locator('option')).toHaveCount(2)
+  expect((await save(page)).parts[0].staves[0].score.measures[0].voices).toHaveLength(2)
   await page.getByRole('button', { name: '믹서', exact: true }).click()
   await page.getByLabel('피아노 뮤트', { exact: true }).click()
   const saved = await save(page)
@@ -112,7 +112,7 @@ test('Alpha creates notes, voices and selected chord tones and reloads complete 
 
 test('Alpha blank-staff insertion commits on release and pointer cancellation leaves the score untouched', async ({ page }) => {
   await menu(page, '파일', '새 악보')
-  await page.getByRole('button', { name: 'N 음표 입력', exact: true }).click()
+  await page.getByRole('button', { name: '음표 입력', exact: true }).click()
   const before = await save(page)
   const entry = page.locator('.entry-target').first()
   await entry.scrollIntoViewIfNeeded()

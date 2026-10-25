@@ -17,7 +17,7 @@ async function save(page: Page): Promise<Project> {
 const events = (project: Project) => project.parts[0].staves[0].score.measures[0].voices[0].events
 async function enter(page: Page) {
   await page.locator('.score-surface').focus(); await page.keyboard.press('n')
-  await expect(page.getByRole('button', { name: 'N 음표 입력', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('button', { name: '음표 입력', exact: true })).toHaveAttribute('aria-pressed', 'true')
 }
 test.beforeEach(async ({ page }) => {
   await page.goto('/PocketScore/')
@@ -114,11 +114,11 @@ test('Ctrl Alt voice shortcut creates a voice and enters there without replacing
 test('text fields retain letters and numbers; Escape restores the existing Shift range selection workflow', async ({ page }) => {
   await page.getByLabel('악보 제목').fill('입력 집중')
   await page.keyboard.type('n5ceg0')
-  await expect(page.getByRole('button', { name: 'N 음표 입력', exact: true })).toHaveAttribute('aria-pressed', 'false')
+  await expect(page.getByRole('button', { name: '음표 입력', exact: true })).toHaveAttribute('aria-pressed', 'false')
   expect(events(await save(page)).every(event => event.kind === 'rest')).toBe(true)
   await enter(page); await page.keyboard.press('c'); await page.keyboard.press('e')
   await page.locator('.event-target').first().click({ modifiers: ['Control'] })
-  await expect(page.getByRole('button', { name: 'N 음표 입력', exact: true })).toHaveAttribute('aria-pressed', 'false')
+  await expect(page.getByRole('button', { name: '음표 입력', exact: true })).toHaveAttribute('aria-pressed', 'false')
   await page.keyboard.press('Escape')
   await page.locator('.event-target').first().click(); await page.keyboard.press('Shift+ArrowRight')
   await expect(page.locator('.event-target[aria-pressed=true]')).toHaveCount(2)
