@@ -16,7 +16,7 @@ Do not claim real tablet tests or MuseScore GUI verification unless performed.
 - No permanently open bottom input panel. Maximize score canvas.
 - Collapsible narrow left toolbar; contextual popovers only when useful.
 - Treat S Pen as a normal pointer, just like finger or mouse. Do not require handwriting recognition or proprietary pen APIs.
-- Vertical drag of a note changes pitch; horizontal drag of a note/rest changes duration, snapped to valid rhythmic values, with preview.
+- Studio input follows MuseScore step-time entry (user override 2026-10-25): N mode, 3–7 duration keys, A–G notes, Shift+A–G chord tones, 0 rest, dot, Escape. Mouse/pen can stack chosen pitches at one onset. Horizontal dragging does not resize Studio events; vertical pitch drag remains. The legacy editor retains both drag axes.
 - Shortening a note/rest creates a rest for the released duration.
 - Lengthening a rest may absorb only immediately following adjacent rests in the same voice and measure, stopping at notes/barlines.
 - Default Studio keyboard: Up/Down moves selected pitches by semitone; Shift+Left/Right extends a time range; Left/Right traverses rhythm events including rests and barlines. Shift+click selects the time/voice/staff range, including whole chords at the same onset. Ctrl/Cmd+click selects individual noteheads across voices/instruments. The legacy editor retains its historical diatonic/Shift-chromatic shortcuts.
@@ -25,10 +25,10 @@ Do not claim real tablet tests or MuseScore GUI verification unless performed.
 - Support Undo/Redo, pointer-cancel rollback, focus-safe keyboard shortcuts, and mobile navigation vs editing distinction.
 
 ## PocketScore 2.0 rebuild priorities
-- Base the overall UI and functional reference on MuseScore Studio 4.7.5, but **do not replace or remove PocketScore's direct-edit gestures or keyboard model**. The renderer (MuseScore WASM vs VexFlow) must not decide input semantics.
-- **Essential S Pen behavior:** drag a selected note **right/left to lengthen/shorten duration**, **up/down to raise/lower pitch**. During dragging show a snapped preview, lock the gesture axis, and commit as a single Undo step. Cancel/lost capture must roll back.
+- Base UI, function, sound and now note entry on MuseScore Studio 4.7.5. The user replaced the earlier custom Studio input requirement on 2026-10-25. Preserve the agreed range/list/group rules and the legacy editor. The renderer must not decide input semantics.
+- **Studio S Pen behavior (2026-10-25):** tap in N mode to enter a note or chord pitch; release commits, cancellation/movement does not insert. Outside N mode vertical pitch dragging previews from a fixed snapshot and commits as one Undo. Horizontal movement leaves duration unchanged; use numeric keys or controls for duration. Preserve touch navigation and rollback.
 - **Essential keyboard behavior (updated by user feedback 2026-10-24):** Studio Arrow Up/Down change single/group pitches by semitone. Shift+Left/Right extends selection; Shift+Up/Down is not the chord-selection shortcut. Arrow Left/Right navigate through notes **and rests**, across barlines. Keep Undo/Redo and do not intercept typing in controls.
-- Preserve exact rhythmic accounting and do not erase other notes when extending duration. Keep pen editing distinct from finger navigation and zoom/pan.
+- Preserve exact rhythmic accounting. Resizing an existing event cannot consume sounded notes. Explicit step-time note entry replaces its target time span in one voice, preserving all content outside it. Reject unsupported tied fragments or barline crossings explicitly. Keep pen editing distinct from finger navigation and zoom/pan.
 - Both UI rewrite and engraving-engine options must pass these UX tests before being called complete. See [docs/pocketscore2-input-ux.md](docs/pocketscore2-input-ux.md) for the complete acceptance contract.
 - Follow [docs/pocketscore2-playback.md](docs/pocketscore2-playback.md) for MuseScore-style playback/sound profile goals and licensing boundaries. Muse Sounds is not an included asset.
 - Use milestone-sized PRs for 2.0 feature delivery and deterministic tests for all changed editing behavior. Do not treat static architecture or artifacts as a working end-to-end editor.

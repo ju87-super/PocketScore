@@ -7,6 +7,11 @@ import { midi, pitchName, STEPS } from '../music/pitch'
 import type { Part, Project, ProjectSelection, Staff } from '../project/model'
 import { targetKey } from '../project/selection'
 import type { ScoreSelection } from '../project/selection'
+import type { NoteEntry } from '../project/noteEntry'
+import { staffAt } from '../project/model'
+import { locate } from '../music/score'
+import { equal } from '../music/rational'
+import { measureDuration } from '../music/settings'
 
 export type EnsembleHit = { target: ProjectSelection; svg: SVGSVGElement; x: number; y: number; hit: SVGRectElement; glyph?: SVGElement }
 export type EnsembleBar = { target: ProjectSelection; svg: SVGSVGElement; group: SVGGElement; background: SVGRectElement; x: number; y: number; width: number; height: number; bottom: number; index: number }
@@ -198,4 +203,21 @@ export function paintEnsemblePlayback(scene: EnsembleScene, measure: number | nu
     line.setAttribute('data-playback-cursor', 'true'); line.setAttribute('stroke', '#d67416'); line.setAttribute('stroke-width', '2')
     bar.group.append(line)
   })
+}
+export function paintEnsembleEntry(scene: EnsembleScene, project: Project, entry: NoteEntry) {
+  scene.bars.forEach(bar => bar.group.querySelector('[data-note-input-cursor]')?.remove())
+  if (!entry.enabled || !entry.cursor) return
+  const cursor = entry.cursor
+  const bar = scene.bars.find(item => item.target.staffId === cursor.staffId && item.target.measureId === cursor.measureId)
+  if (!bar) return
+  const score = staffAt(project, cursor).staff.score
+  const hit = scene.hits.find(item => item.target.staffId === cursor.staffId && item.target.measureId === cursor.measureId && item.target.voiceId === cursor.voiceId && equal(locate(score, item.target).event.start, cursor.start))
+  const capacity = measureDuration(score.timeSignature)
+  const x = hit ? hit.x - 10 : bar.x + bar.width * (cursor.start.n * capacity.d / cursor.start.d / capacity.n)
+  const line = svgElement('line')
+  line.setAttribute('x1', String(x)); line.setAttribute('x2', String(x))
+  line.setAttribute('y1', String(bar.bottom - 48)); line.setAttribute('y2', String(bar.bottom + 12))
+  line.setAttribute('stroke', '#287ac9'); line.setAttribute('stroke-width', '2'); line.setAttribute('pointer-events', 'none')
+  line.dataset.noteInputCursor = 'true'; line.setAttribute('aria-label', '다음 음표 입력 위치')
+  bar.group.append(line)
 }

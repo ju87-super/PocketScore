@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import type { ChangeEvent, ReactNode } from 'react'
 import { createProjectState, projectReducer } from '../project/state'
-import { createProject, DRUMS, INSTRUMENTS, insertAt, makePart, primaryScore, replaceEvent, staffAt, uid, updateStaff, validateProject } from '../project/model'
+import { createProject, DRUMS, INSTRUMENTS, makePart, primaryScore, replaceEvent, staffAt, uid, updateStaff, validateProject } from '../project/model'
 import type { Instrument, Part, Project, ProjectSelection } from '../project/model'
 import { addMeasure, addStaff, addVoice, removeMeasure, removeVoice } from '../project/structure'
 import { DURATIONS, durationName, eventName, eventPitches, locate } from '../music/score'
@@ -10,6 +10,8 @@ import { movePitch, pitchName } from '../music/pitch'
 import type { Pitch } from '../music/pitch'
 import type { Action } from '../editor/state'
 import type { Rational } from '../music/rational'
+import { equal } from '../music/rational'
+import { dottedDuration, ENTRY_DURATIONS, isNoteLetter } from '../project/noteEntry'
 import { KEY_LABELS, TIME_SIGNATURES } from '../music/settings'
 import type { TimeSignature } from '../music/settings'
 import { download, parseProject, serializeProject } from '../files/project'
@@ -25,10 +27,13 @@ function Menu({ name, children }: { name: string; children: ReactNode }) {
 }
 const seconds = (value: number) => `${Math.floor(value / 60)}:${Math.floor(value % 60).toString().padStart(2, '0')}`
 const EMPTY_AUDIO: PlaybackState = { playing: false, position: 0, duration: 0, peak: 0, timeline: null }
+const focusScore = () => document.querySelector<HTMLElement>('.ensemble-surface')?.focus({ preventScroll: true })
 
 export default function App2() {
   const [state, dispatch] = useReducer(projectReducer, undefined, () => createProjectState())
-  const { project, selection, selected } = state.present
+  const { project, selection, selected, entry } = state.present
+  const input = entry.enabled, rest = entry.rest
+  const duration = DURATIONS.findIndex(item => equal(item, entry.duration))
   const groupSelected = isGroupSelection(selected)
   const wholeBarSelected = selected?.kind === 'measure' && selected.targets.every(target => target.staffId === selection?.staffId && target.measureId === selection?.measureId)
   const legacyClipboardDisabled = groupSelected && !wholeBarSelected
@@ -36,9 +41,6 @@ export default function App2() {
   const [left, setLeft] = useState(true)
   const [right, setRight] = useState(false)
   const [mixer, setMixer] = useState(false)
-  const [input, setInput] = useState(false)
-  const [rest, setRest] = useState(false)
-  const [duration, setDuration] = useState(3)
   const [voice, setVoice] = useState(0)
   const [instrument, setInstrument] = useState<Instrument>('piano')
   const [fingerEdit, setFingerEdit] = useState(false)
@@ -57,6 +59,7 @@ export default function App2() {
   const playerPromise = useRef<Promise<PlaybackBackend> | null>(null)
   const mounted = useRef(true)
   const fileInput = useRef<HTMLInputElement>(null)
+  const playButton = useRef<HTMLButtonElement>(null)
   const clipboard = useRef<readonly (readonly RhythmEvent[])[] | null>(null)
   const clipboardTime = useRef<TimeSignature>('4/4')
   const projectRef = useRef(project)
@@ -71,6 +74,14 @@ export default function App2() {
   const measureIndex = selection ? current.staff.score.measures.findIndex(measure => measure.id === selection.measureId) : 0
   const playingMeasure = audio.playing ? timeline.measureTimes.reduce((result, time, index) => time <= audio.position + 0.01 ? index : result, 0) : null
   const playingProgress = playingMeasure === null ? 0 : Math.max(0, Math.min(1, (audio.position - timeline.measureTimes[playingMeasure]) / ((timeline.measureTimes[playingMeasure + 1] ?? timeline.duration) - timeline.measureTimes[playingMeasure])))
+  const entryTarget = useMemo(() => selection ?? { partId: current.part.id, staffId: current.staff.id,
+    measureId: current.staff.score.measures[0].id, voiceId: current.staff.score.measures[0].voices[Math.min(voice, current.staff.score.measures[0].voices.length - 1)].id,
+    eventId: current.staff.score.measures[0].voices[Math.min(voice, current.staff.score.measures[0].voices.length - 1)].events[0].id }, [selection, current, voice])
+  const chooseDuration = useCallback((value: Rational) => {
+    if (!input && selection) dispatch({ type: 'canvas', ...selection, action: { type: 'duration', duration: value } })
+    if (!groupSelected || input) dispatch({ type: 'entrySettings', settings: { duration: value } })
+    focusScore()
+  }, [input, selection, groupSelected])
 
   useEffect(() => {
     projectRef.current = project
@@ -88,41 +99,65 @@ export default function App2() {
   }, [state.past.length])
   useEffect(() => {
     const historyKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || !(event.ctrlKey || event.metaKey) || event.altKey || state.gesture) return
+      if (event.defaultPrevented || event.isComposing || state.gesture) return
       if ((event.target as Element)?.closest?.('input, textarea, select, [contenteditable="true"], dialog')) return
       const key = event.key.toLowerCase()
-      if (key !== 'z' && key !== 'y') return
-      event.preventDefault()
-      dispatch({ type: key === 'y' || event.shiftKey ? 'redo' : 'undo' })
+      if (event.ctrlKey || event.metaKey) {
+        if (event.altKey && /^[1-4]$/.test(key)) {
+          event.preventDefault(); dispatch({ type: 'entryVoice', index: Number(key) - 1, selection: entryTarget }); setVoice(Number(key) - 1); focusScore()
+        } else if (!event.altKey && (key === 'z' || key === 'y')) {
+          event.preventDefault(); dispatch({ type: key === 'y' || event.shiftKey ? 'redo' : 'undo' })
+        }
+        return
+      }
+      if (event.altKey) return
+      const target = event.target as Element
+      if (target !== document.body && !target.closest?.('.score-surface, .note-toolbar')) return
+      if (key === 'n' && !event.repeat) {
+        event.preventDefault(); dispatch({ type: 'entryMode', enabled: !entry.enabled, selection: entryTarget }); focusScore(); return
+      }
+      if (key === 'escape') { dispatch({ type: 'entryMode', enabled: false }); return }
+      if (key === ' ' && !target.closest?.('button, summary')) { event.preventDefault(); if (!event.repeat) playButton.current?.click(); return }
+      if (ENTRY_DURATIONS[key]) { event.preventDefault(); chooseDuration(ENTRY_DURATIONS[key]); return }
+      if (key === '.') {
+        event.preventDefault()
+        try { chooseDuration(dottedDuration(!entry.enabled && selection ? locate(staffAt(project, selection).staff.score, selection).event.duration : entry.duration)) }
+        catch (error) { dispatch({ type: 'entrySettings', settings: {} }); setMessage((error as Error).message) }
+        return
+      }
+      if (/^[1289]$/.test(key)) {
+        event.preventDefault(); dispatch({ type: 'entrySettings', settings: {} }); setMessage('현재 입력 길이는 3~7키(16분~온음표)를 지원합니다.'); return
+      }
+      if (key === 'delete' || key === 'backspace') { event.preventDefault(); dispatch({ type: 'deleteSelected' }); return }
+      if (key === '0' && entry.enabled) { event.preventDefault(); dispatch({ type: 'entryWrite', rest: true }); return }
+      const letter = key.toUpperCase()
+      if (isNoteLetter(letter) && (entry.enabled || event.shiftKey)) {
+        event.preventDefault(); dispatch({ type: 'entryWrite', letter, chord: event.shiftKey })
+      }
     }
     window.addEventListener('keydown', historyKey)
     return () => window.removeEventListener('keydown', historyKey)
-  }, [state.gesture])
+  }, [state.gesture, entry, selection, project, chooseDuration, entryTarget])
   useEffect(() => {
     if (!selection) return
     const target = document.querySelector<HTMLElement>(`[data-event-id="${CSS.escape(selection.eventId)}"][data-pitch-index="${selection.pitchIndex ?? 0}"]`)
     target?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
     if (document.activeElement?.classList.contains('score-surface')) target?.closest<HTMLElement>('.score-surface')?.focus({ preventScroll: true })
   }, [selection])
+  useEffect(() => {
+    if (entry.enabled && document.activeElement?.classList.contains('score-surface')) document.querySelector('[data-note-input-cursor]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [entry.cursor, entry.enabled])
 
   const change = (transform: (project: Project) => Project, nextSelection?: ProjectSelection | null) => dispatch({ type: 'change', change: transform, selection: nextSelection })
   const action = (command: Action) => dispatch({ type: 'canvas', partId: current.part.id, staffId: current.staff.id, action: command })
-  const activate = useCallback((partId: string, staffId: string) => { setActive({ partId, staffId }); dispatch({ type: 'selection', selection: null }); setVoice(0) }, [])
-  const insert = useCallback((partId: string, staffId: string, measureId: string, start: Rational, pitch: Pitch) => {
-    dispatch({ type: 'change', change: before => {
-      const { part, staff } = staffAt(before, { partId, staffId })
-      const voiceId = staff.score.measures[0].voices[Math.min(voice, staff.score.measures[0].voices.length - 1)].id
-      return insertAt(before, { partId, staffId, measureId, voiceId, eventId: '' }, start, DURATIONS[duration], rest ? null : part.instrument === 'drums' ? DRUMS[0].pitch : pitch)
-    } })
-    setActive({ partId, staffId })
-  }, [duration, rest, voice])
-
+  const activate = useCallback((partId: string, staffId: string) => { setActive({ partId, staffId }); dispatch({ type: 'selection', selection: null }); dispatch({ type: 'entryMode', enabled: false }); setVoice(0) }, [])
   const save = () => {
     download(serializeProject(project), `${project.title}.pocketscore.json`, 'application/json')
     setMessage('프로젝트를 다운로드했습니다. 음표·성부·믹서·템포를 함께 저장합니다.')
   }
   const replace = (next: Project) => {
     change(() => next, null)
+    dispatch({ type: 'entryMode', enabled: false })
     setActive({ partId: next.parts[0].id, staffId: next.parts[0].staves[0].id }); setVoice(0)
   }
   async function open(event: ChangeEvent<HTMLInputElement>) {
@@ -217,17 +252,19 @@ export default function App2() {
     <input ref={fileInput} type="file" accept=".json,.xml,.musicxml" hidden onChange={event => { void open(event) }}/>
     <div className="note-toolbar" aria-label="음표 도구 모음">
       <button aria-label="팔레트" aria-expanded={left} onClick={() => setLeft(value => !value)}>☰</button>
-      <button aria-pressed={input} onClick={() => setInput(value => !value)}>N 음표 입력</button>
-      <label>길이 <select aria-label="입력 길이" value={duration} onChange={event => setDuration(Number(event.target.value))}>{DURATIONS.map((item, index) => <option key={index} value={index}>{durationName(item)}</option>)}</select></label>
-      <button aria-pressed={rest} onClick={() => setRest(value => !value)}>쉼표 입력</button>
-      {([['♯', 1], ['♭', -1], ['♮', 0]] as const).map(([label, alter]) => <button key={alter} aria-label={`임시표 ${label}`} disabled={groupSelected || event?.kind !== 'note' || current.part.instrument === 'drums'} onClick={() => action({ type: 'accidental', alter })}>{label}</button>)}
-      <label>성부 <select aria-label="입력 성부" value={Math.min(voice, current.staff.score.measures[0].voices.length - 1)} onChange={event => setVoice(Number(event.target.value))}>{current.staff.score.measures[0].voices.map((item, index) => <option key={item.id} value={index}>{index + 1}</option>)}</select></label>
+      <button aria-pressed={input} onClick={() => { dispatch({ type: 'entryMode', enabled: !input, selection: entryTarget }); focusScore() }}>N 음표 입력</button>
+      <label>길이 <select aria-label="입력 길이" disabled={groupSelected && !input} value={duration} onChange={event => chooseDuration(DURATIONS[Number(event.target.value)])}>{DURATIONS.map((item, index) => <option key={index} value={index}>{durationName(item)}</option>)}</select></label>
+      <button aria-label="점음표" onClick={() => { try { chooseDuration(dottedDuration(input || !event ? entry.duration : event.duration)) } catch (error) { setMessage((error as Error).message) } }}>점 .</button>
+      <button aria-pressed={rest} onClick={() => { dispatch({ type: 'entrySettings', settings: { rest: !rest } }); focusScore() }}>쉼표 입력</button>
+      {([['♯', 1], ['♭', -1], ['♮', 0]] as const).map(([label, alter]) => <button key={alter} aria-label={`임시표 ${label}`} aria-pressed={input && entry.accidental === alter} disabled={groupSelected || (!input && event?.kind !== 'note') || current.part.instrument === 'drums'} onClick={() => { if (input) dispatch({ type: 'entrySettings', settings: { accidental: entry.accidental === alter ? null : alter } }); else action({ type: 'accidental', alter }); focusScore() }}>{label}</button>)}
+      <label>성부 <select aria-label="입력 성부" value={Math.min(voice, current.staff.score.measures[0].voices.length - 1)} onChange={event => { const index = Number(event.target.value); setVoice(index); dispatch({ type: 'entryVoice', index, selection: entryTarget }); focusScore() }}>{current.staff.score.measures[0].voices.map((item, index) => <option key={item.id} value={index}>{index + 1}</option>)}</select></label>
       <button aria-label="실행 취소" disabled={!state.past.length || !!state.gesture} onClick={() => dispatch({ type: 'undo' })}>↶</button><button aria-label="다시 실행" disabled={!state.future.length || !!state.gesture} onClick={() => dispatch({ type: 'redo' })}>↷</button>
+      {input && <span className="entry-guide">3~7 길이 · A–G 음표 · Shift+A–G 또는 같은 박자 클릭으로 화음 · 0 쉼표 · Esc 종료</span>}
       <button aria-label="속성" aria-expanded={right} onClick={() => setRight(value => !value)}>속성</button>
     </div>
     <div className="transport" aria-label="재생 도구" data-playing={audio.playing}>
       <button aria-label="처음으로" disabled={loading} onClick={() => player.current?.seek(0)}>⏮</button>
-      <button disabled={loading || !!state.gesture} onClick={() => { if (audio.playing) pause(); else void play() }}>{loading ? '음원 준비 중…' : audio.playing ? '일시정지' : '재생'}</button>
+      <button ref={playButton} disabled={loading || !!state.gesture} onClick={() => { if (audio.playing) pause(); else void play() }}>{loading ? '음원 준비 중…' : audio.playing ? '일시정지' : '재생'}</button>
       <button onClick={stop}>정지</button><button disabled={!selection || loading || !!state.gesture} onClick={() => { void play(true) }}>선택 마디부터</button>
       <input aria-label="재생 위치" type="range" min="0" max={transportLength} step="0.05" value={Math.min(audio.position, transportLength)} disabled={!audioReady || loading} onChange={event => player.current?.seek(Number(event.target.value))}/>
       <output aria-label="재생 시간">{seconds(audio.position)} / {seconds(transportLength)}</output>
@@ -253,7 +290,7 @@ export default function App2() {
       <section className="score-desk" aria-label="악보 작업 공간">
         <div className="view-tools"><span aria-label="선택 개수" aria-live="polite">{selected ? `${selected.targets.length}개 선택` : '선택 없음'}</span><label>보기<select aria-label="악보 보기" value={continuous ? 'continuous' : 'page'} onChange={event => setContinuous(event.target.value === 'continuous')}><option value="page">페이지</option><option value="continuous">연속</option></select></label><label>배율<select aria-label="악보 배율" value={zoom} onChange={event => { dispatch({ type: 'cancel' }); setZoom(Number(event.target.value)) }}>{[0.75, 1, 1.25, 1.5].map(value => <option key={value} value={value}>{value * 100}%</option>)}</select></label><label><input type="checkbox" checked={fingerEdit} onChange={event => { dispatch({ type: 'cancel' }); setFingerEdit(event.target.checked) }}/> 손가락 편집</label></div>
         <div className="score-page" data-view={continuous ? 'continuous' : 'page'}><h2>{project.title}</h2><p className="score-subtitle">{project.parts.map(part => part.name).join(' · ')} · ♩ = {project.tempos[0].bpm}</p>
-          <EnsembleView project={project} selection={selection} selected={selected} dispatch={dispatch} zoom={zoom} sensitivity={sensitivity} fingerEdit={fingerEdit} continuous={continuous} input={input} inputVoice={voice} insert={insert} playingMeasure={playingMeasure} playingProgress={playingProgress}/>
+          <EnsembleView project={project} selection={selection} selected={selected} entry={entry} dispatch={dispatch} zoom={zoom} sensitivity={sensitivity} fingerEdit={fingerEdit} continuous={continuous} inputVoice={voice} playingMeasure={playingMeasure} playingProgress={playingProgress}/>
         </div>
       </section>
       {right && <aside className="properties" aria-label="속성 패널"><h2>속성</h2><p aria-label="선택 상태">{groupSelected ? `${selected!.targets.length}개 선택 · ` : ''}{event ? `${measureIndex + 1}마디 · ${event.kind === 'note' ? `${pitchName(eventPitches(event)[selection?.pitchIndex ?? 0])} ${durationName(event.duration)}음표` : eventName(event)}` : '음표 또는 쉼표를 선택하세요.'}</p>
@@ -269,7 +306,7 @@ export default function App2() {
         <label>드래그 간격<select aria-label="드래그 감도" value={sensitivity} onChange={event => { dispatch({ type: 'cancel' }); setSensitivity(Number(event.target.value)) }}><option value="0.75">촘촘하게 75%</option><option value="1">기본 100%</option><option value="1.5">넓게 150%</option></select></label>
       </aside>}
     </div>
-    <p className="studio-status" role="status">{state.notice || message}</p><p id="editing-help" className="input-help">펜·마우스: 음표 좌우 드래그 = 길이, 상하 = 음높이 · ↑↓ 반음 이동 · Shift+←→ / Shift+클릭 범위 선택 · Ctrl+클릭 음표 추가 선택 · 그룹 길이 변경 불가 · Ctrl+Z / Y / Shift+Z · Esc 취소 · 손가락은 기본 스크롤·확대</p>
-    {help && <dialog className="help-dialog" aria-label="Alpha 도움말" ref={element => { if (element && !element.open) element.showModal() }} onCancel={() => setHelp(false)}><div><button autoFocus onClick={() => setHelp(false)}>닫기</button><h2>PocketScore 2.0 Alpha</h2><p>음표 입력을 켜고 빈 오선지를 누르세요. 쉼표를 음표로 바꾸려면 선택한 뒤 속성을 여세요. 기존 음표·쉼표는 펜으로 직접 끌어 길이와 음높이를 바꿉니다. 화음 구성음은 음표 머리나 속성에서 선택합니다. 삭제·새 악보·불러오기도 실행 취소할 수 있습니다.</p><p>악기·오선이 같은 마디·박자 위치에 정렬되는 총보입니다. Shift+클릭은 시간·성부 범위를, Ctrl+클릭은 구성음을 개별 선택합니다. 겹친 동음의 단일 선택은 입력 성부로 구분할 수 있습니다. 그룹에서는 음높이만 편집하며 길이는 변경할 수 없습니다.</p><p>MuseScore Studio 4.7.5의 UI·모듈 구조를 참고한 React/VexFlow 편집기입니다. MuseScore C++ 엔진·Qt UI를 실행하지 않습니다. MS Basic SF3를 실제 SoundFont 합성기로 재생합니다. 첫 재생 시 51.3 MB가 필요합니다.</p><p>현재: 다중 악기·성부·화음·템포·JSON·제한된 MusicXML. 다음: 연음표·붙임줄·이음줄·강약·스타카토/레가토·기보 반복, 사용자 SF2/SF3, Muse Sounds 공식 연동, 자동 복구·오프라인. 이 기능이 있는 MusicXML은 변환하지 않고 거부합니다.</p><p>Muse Sounds는 포함되지 않습니다. 실제 Galaxy Tab/S펜과 MuseScore GUI 검증은 별도 필요합니다.</p><p><a href={`${import.meta.env.BASE_URL}audio/MSBasic-LICENSE.md`} target="_blank" rel="noreferrer">MS Basic MIT 라이선스</a> · SpessaSynth 4.3.14 / core 4.3.22 / stb-vorbis 0.0.6: Apache-2.0 · VexFlow: MIT</p></div></dialog>}
+    <p className="studio-status" role="status">{state.notice || message}</p><p id="editing-help" className="input-help">N 입력 모드 · 3~7 길이 · . 점음표 · A–G 음표 · Shift+A–G 화음 추가 · 0 쉼표 · 입력 모드의 같은 박자 클릭 = 화음 · 선택 모드의 Shift/Ctrl+클릭 = 그룹 · ↑↓ 반음 · 그룹 길이 변경 불가 · Ctrl+Z / Y / Shift+Z · Esc 종료·취소</p>
+    {help && <dialog className="help-dialog" aria-label="Alpha 도움말" ref={element => { if (element && !element.open) element.showModal() }} onCancel={() => setHelp(false)}><div><button autoFocus onClick={() => setHelp(false)}>닫기</button><h2>PocketScore 2.0 Alpha</h2><p>N으로 입력 모드를 켜고 3~7로 길이를 선택한 뒤 A–G로 입력하세요. N → 5 → C → Shift+E → Shift+G는 4분 도미솔 화음입니다. 마우스·펜으로 같은 박자의 다른 높이를 눌러도 화음이 됩니다. 0은 쉼표, .은 점음표, Esc는 입력 종료입니다. 선택 모드에서는 상하 드래그로 음높이를, 숫자키·속성으로 길이를 바꿉니다. Space로 재생·일시정지합니다. 지원 길이는 16분~온음표와 점8분·점4분·점2분이며 자동 붙임줄은 아직 지원하지 않습니다.</p><p>악기·오선이 같은 마디·박자 위치에 정렬되는 총보입니다. 선택 모드의 Shift+클릭은 시간·성부 범위를, Ctrl+클릭은 구성음을 개별 선택합니다. 겹친 동음의 단일 선택은 입력 성부로 구분할 수 있습니다. 그룹에서는 음높이만 편집하며 길이는 변경할 수 없습니다.</p><p>MuseScore Studio 4.7.5의 UI·모듈 구조를 참고한 React/VexFlow 편집기입니다. MuseScore C++ 엔진·Qt UI를 실행하지 않습니다. MS Basic SF3를 실제 SoundFont 합성기로 재생합니다. 첫 재생 시 51.3 MB가 필요합니다.</p><p>현재: 다중 악기·성부·화음·템포·JSON·제한된 MusicXML. 다음: 연음표·붙임줄·이음줄·강약·스타카토/레가토·기보 반복, 사용자 SF2/SF3, Muse Sounds 공식 연동, 자동 복구·오프라인. 이 기능이 있는 MusicXML은 변환하지 않고 거부합니다.</p><p>Muse Sounds는 포함되지 않습니다. 실제 Galaxy Tab/S펜과 MuseScore GUI 검증은 별도 필요합니다.</p><p><a href={`${import.meta.env.BASE_URL}audio/MSBasic-LICENSE.md`} target="_blank" rel="noreferrer">MS Basic MIT 라이선스</a> · SpessaSynth 4.3.14 / core 4.3.22 / stb-vorbis 0.0.6: Apache-2.0 · VexFlow: MIT</p></div></dialog>}
   </main>
 }

@@ -28,8 +28,8 @@ test.beforeEach(async ({ page }) => {
   await page.getByRole('button', { name: '팔레트', exact: true }).click()
 })
 for (const move of [
-  { name: 'right lengthens', dx: 32, dy: 0, duration: { n: 3, d: 8 }, pitch: { step: 'C', octave: 4, alter: 0 } },
-  { name: 'left shortens', dx: -32, dy: 0, duration: { n: 3, d: 16 }, pitch: { step: 'C', octave: 4, alter: 0 } },
+  { name: 'right preserves duration; key 6 lengthens', dx: 32, dy: 0, duration: { n: 1, d: 2 }, pitch: { step: 'C', octave: 4, alter: 0 } },
+  { name: 'left preserves duration; key 3 shortens', dx: -32, dy: 0, duration: { n: 1, d: 16 }, pitch: { step: 'C', octave: 4, alter: 0 } },
   { name: 'up raises pitch', dx: 0, dy: -20, duration: { n: 1, d: 4 }, pitch: { step: 'E', octave: 4, alter: 0 } },
   { name: 'down lowers pitch', dx: 0, dy: 20, duration: { n: 1, d: 4 }, pitch: { step: 'A', octave: 3, alter: 0 } },
 ]) test(`CI emulated S Pen ${move.name}`, async ({ page }) => {
@@ -38,6 +38,11 @@ for (const move of [
   await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...origin, button: 'left', buttons: 1, clickCount: 1, pointerType: 'pen' })
   await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: origin.x + move.dx, y: origin.y + move.dy, buttons: 1, pointerType: 'pen' })
   await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: origin.x + move.dx, y: origin.y + move.dy, button: 'left', buttons: 0, clickCount: 1, pointerType: 'pen' })
+  if (move.dx) {
+    expect((await saved(page)).parts[0].staves[0].score.measures[0].voices[0].events[0].duration).toEqual({ n: 1, d: 4 })
+    await page.locator('.score-surface').focus()
+    await page.keyboard.press(move.dx > 0 ? '6' : '3')
+  }
   const event = (await saved(page)).parts[0].staves[0].score.measures[0].voices[0].events[0]
   expect(event).toMatchObject({ duration: move.duration, pitch: move.pitch })
   await page.getByRole('button', { name: '실행 취소', exact: true }).click()

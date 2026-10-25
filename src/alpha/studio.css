@@ -23,6 +23,8 @@
 .studio-menu > div { position: absolute; top: 44px; left: 0; min-width: 220px; padding: 6px; background: white; box-shadow: 0 8px 24px #2225; border: 1px solid #bcc5d4; border-radius: 5px; }
 .studio-menu > div button { display: block; width: 100%; text-align: left; border: 0; }
 .note-toolbar, .transport { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 8px 12px; background: #f5f6f8; border-bottom: 1px solid #c5cbd5; }
+.entry-guide { color: #245c94; font-size: 12px; padding: 6px; }
+.ensemble-surface[data-input-mode=true] .entry-target, .ensemble-surface[data-input-mode=true] .event-target { cursor: crosshair; }
 .transport { background: #eaf0fa; font-size: 13px; }
 .transport > input[type=range] { flex: 1; max-width: 300px; }
 .transport meter { width: 60px; }
