@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { NoteEntry } from '../project/noteEntry'
 import type { Rational } from '../music/rational'
@@ -19,10 +20,25 @@ function Tool({ label, children, pressed, disabled, onClick, className = '' }: {
   return <button type="button" aria-label={label} title={label} aria-pressed={pressed} disabled={disabled} onClick={onClick} className={`notation-tool ${className}`}>{children}</button>
 }
 export default function NoteInputToolbar(p: Props) {
+  const tools = useRef<HTMLDivElement>(null)
+  const [overflow, setOverflow] = useState({ before: false, after: false })
+  useLayoutEffect(() => {
+    const element = tools.current!
+    const update = () => {
+      const before = element.scrollLeft > 1, after = element.scrollLeft + element.clientWidth < element.scrollWidth - 1
+      setOverflow(previous => previous.before === before && previous.after === after ? previous : { before, after })
+    }
+    const observer = new ResizeObserver(update)
+    observer.observe(element); observer.observe(element.firstElementChild!)
+    element.addEventListener('scroll', update, { passive: true }); update()
+    return () => { observer.disconnect(); element.removeEventListener('scroll', update) }
+  }, [])
   const enabled = p.entry.enabled
   const blocked = p.busy || (p.group && !enabled)
   const base = p.duration.n === 3 ? fraction(1, p.duration.d / 2) : p.duration
   return <div className="note-toolbar" role="toolbar" aria-label="음표 도구 모음">
+    <button className="toolbar-scroll" aria-label="이전 음표 도구" title="이전 도구" disabled={!overflow.before} hidden={!overflow.before && !overflow.after} onClick={() => tools.current?.scrollBy({ left: -240 })}>‹</button>
+    <div ref={tools} className="notation-tools">
     <div className="tool-section dock-tools">
       <Tool label="팔레트" pressed={p.left} onClick={p.palette}><span aria-hidden="true">☷</span></Tool>
     </div>
@@ -53,5 +69,7 @@ export default function NoteInputToolbar(p: Props) {
       <Tool label="다시 실행" disabled={!p.redo || p.busy} onClick={() => p.history('redo')}><span aria-hidden="true">↷</span></Tool>
     </div>
     <div className="tool-section inspector-toggle"><Tool label="속성" pressed={p.right} onClick={p.properties}><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 4h18v2H3Zm0 7h18v2H3Zm0 7h18v2H3Z"/><path d="M7 2h3v6H7Zm8 7h3v6h-3ZM6 16h3v6H6Z"/></svg><span>속성</span></Tool></div>
+    </div>
+    <button className="toolbar-scroll" aria-label="다음 음표 도구" title="다음 도구" disabled={!overflow.after} hidden={!overflow.before && !overflow.after} onClick={() => tools.current?.scrollBy({ left: 240 })}>›</button>
   </div>
 }

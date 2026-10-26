@@ -48,7 +48,8 @@ test('mouse input stacks chosen pitches at the same onset without opening proper
   expect(eventPitches(events(await save(page))[0]).map(midi)).toEqual([60, 64, 67])
   await page.locator('.score-surface').focus(); await page.keyboard.press('d')
   expect(events(await save(page))[1]).toMatchObject({ start: { n: 1, d: 4 }, pitch: { step: 'D' } })
-  await expect(page.locator('.properties')).toHaveCount(0)
+  // Closed docks stay mounted to retain their tab/scroll state.
+  await expect(page.locator('.properties')).toBeHidden()
   await page.screenshot({ path: 'test-results/note-entry-chord.png', fullPage: true })
 })
 
