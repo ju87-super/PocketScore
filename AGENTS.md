@@ -15,6 +15,7 @@ Do not claim real tablet tests or MuseScore GUI verification unless performed.
 ## Core UX rules
 - No permanently open bottom input panel. Maximize score canvas.
 - Collapsible narrow left toolbar; contextual popovers only when useful.
+- Studio workspace (user override 2026-10-26): MuseScore-style bounded editing window. Keep input/playback controls visible while the central score scrolls; dock contents scroll independently with pinned headings, close/reopen and desktop width resizing. Preserve the visible musical location through docking, zoom and responsive reflow. A compact status/view bar is allowed; no permanent bottom note-entry panel. Preserve the agreed keyboard mappings.
 - Treat S Pen as a normal pointer, just like finger or mouse. Do not require handwriting recognition or proprietary pen APIs.
 - Studio is graphical first (user override 2026-10-26): grouped notation-symbol buttons, selection/note/chord tools, rest/dot/accidental tools, four voice buttons, a shadow-note preview, palettes/instruments tabs and contextual properties. Basic entry/edit/history must work without keyboard shortcuts. Keep shortcuts optional in help. Studio also supports MuseScore step-time entry (2026-10-25): N mode, 3–7 duration keys, A–G notes, Shift+A–G chord tones, 0 rest, dot, Escape. Mouse/pen can stack chosen pitches at one onset. Horizontal dragging does not resize Studio events; vertical pitch drag remains. The legacy editor retains both drag axes.
 - Shortening a note/rest creates a rest for the released duration.

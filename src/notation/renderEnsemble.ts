@@ -17,7 +17,7 @@ import { rhythmSymbol, VOICE_COLORS } from './symbols'
 
 export type EnsembleHit = { target: ProjectSelection; svg: SVGSVGElement; x: number; y: number; hit: SVGRectElement; glyph?: SVGElement }
 export type EnsembleBar = { target: ProjectSelection; svg: SVGSVGElement; group: SVGGElement; background: SVGRectElement; x: number; y: number; width: number; height: number; bottom: number; index: number }
-export type EnsembleScene = { hits: EnsembleHit[]; bars: EnsembleBar[]; columns: number; width: number; height: number }
+export type EnsembleScene = { hits: EnsembleHit[]; bars: EnsembleBar[]; columns: number; width: number; height: number; minimumWidth: number }
 export type NoteGhost = { svg: SVGSVGElement; x: number; y: number; bottom: number; duration: Rational; rest: boolean; accidental: -1 | 0 | 1 | null; voice: number; label: string; valid: boolean }
 type StaffRow = { part: Part; staff: Staff; y: number }
 type CachedBar = { models: readonly Measure[]; groups: SVGGElement[]; hits: EnsembleHit[]; bars: EnsembleBar[] }
@@ -84,10 +84,11 @@ export function renderEnsemble(container: HTMLDivElement, project: Project, avai
       svg.setAttribute('role', 'group'); svg.setAttribute('aria-label', `총보 ${i + 1}번째 시스템`)
       return renderer
     })
-    current = { layout, renderers, bars: [], scene: { hits: [], bars: [], columns, width, height } }
+    current = { layout, renderers, bars: [], scene: { hits: [], bars: [], columns, width, height, minimumWidth: label + minimum * (continuous ? count : 1) } }
     cache.set(container, current)
   }
   const result = current
+  result.scene.minimumWidth = label + minimum * (continuous ? count : 1)
   for (let index = 0; index < count; index++) {
     const models = rows.map(row => row.staff.score.measures[index])
     const previous = result.bars[index]
