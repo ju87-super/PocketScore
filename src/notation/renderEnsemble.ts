@@ -7,14 +7,23 @@ import { midi, pitchName, STEPS } from '../music/pitch'
 import type { Part, Project, ProjectSelection, Staff } from '../project/model'
 import { targetKey } from '../project/selection'
 import type { ScoreSelection } from '../project/selection'
+import type { NoteEntry } from '../project/noteEntry'
+import { staffAt } from '../project/model'
+import { locate } from '../music/score'
+import { equal } from '../music/rational'
+import { measureDuration } from '../music/settings'
+import type { Rational } from '../music/rational'
+import { rhythmSymbol, VOICE_COLORS } from './symbols'
 
 export type EnsembleHit = { target: ProjectSelection; svg: SVGSVGElement; x: number; y: number; hit: SVGRectElement; glyph?: SVGElement }
 export type EnsembleBar = { target: ProjectSelection; svg: SVGSVGElement; group: SVGGElement; background: SVGRectElement; x: number; y: number; width: number; height: number; bottom: number; index: number }
 export type EnsembleScene = { hits: EnsembleHit[]; bars: EnsembleBar[]; columns: number; width: number; height: number }
+export type NoteGhost = { svg: SVGSVGElement; x: number; y: number; bottom: number; duration: Rational; rest: boolean; accidental: -1 | 0 | 1 | null; voice: number; label: string; valid: boolean }
 type StaffRow = { part: Part; staff: Staff; y: number }
 type CachedBar = { models: readonly Measure[]; groups: SVGGElement[]; hits: EnsembleHit[]; bars: EnsembleBar[] }
 type Cache = { layout: string; scene: EnsembleScene; renderers: Renderer[]; bars: CachedBar[] }
 const cache = new WeakMap<HTMLDivElement, Cache>()
+const ghosts = new WeakMap<EnsembleScene, { group: SVGGElement; key: string }>()
 const svgElement = <K extends keyof SVGElementTagNameMap>(name: K) => document.createElementNS('http://www.w3.org/2000/svg', name)
 
 export function disposeEnsemble(container: HTMLDivElement) { cache.delete(container); container.replaceChildren() }
@@ -130,6 +139,7 @@ export function renderEnsemble(container: HTMLDivElement, project: Project, avai
       hitBar.setAttribute('x', String(x)); hitBar.setAttribute('y', String(bar.y)); hitBar.setAttribute('width', String(measureWidth)); hitBar.setAttribute('height', String(bar.height))
       hitBar.setAttribute('class', 'entry-target measure-target'); hitBar.dataset.entryMeasure = measure.id
       hitBar.dataset.partId = row.part.id; hitBar.dataset.staffId = row.staff.id
+      hitBar.dataset.staffBottomY = String(bar.bottom); hitBar.dataset.noteStartX = String(bar.x + 10)
       hitBar.setAttribute('role', 'button'); hitBar.setAttribute('aria-label', `${row.staff.name} ${index + 1}마디 선택`)
       group.append(hitBar); entry.bars.push(bar)
       rendered[rowIndex].forEach(({ model, notes, voice }, voiceIndex) => {
@@ -198,4 +208,54 @@ export function paintEnsemblePlayback(scene: EnsembleScene, measure: number | nu
     line.setAttribute('data-playback-cursor', 'true'); line.setAttribute('stroke', '#d67416'); line.setAttribute('stroke-width', '2')
     bar.group.append(line)
   })
+}
+export function paintEnsembleEntry(scene: EnsembleScene, project: Project, entry: NoteEntry) {
+  scene.bars.forEach(bar => bar.group.querySelector('[data-note-input-cursor]')?.remove())
+  if (!entry.enabled || !entry.cursor) return
+  const cursor = entry.cursor
+  const bar = scene.bars.find(item => item.target.staffId === cursor.staffId && item.target.measureId === cursor.measureId)
+  if (!bar) return
+  const score = staffAt(project, cursor).staff.score
+  const hit = scene.hits.find(item => item.target.staffId === cursor.staffId && item.target.measureId === cursor.measureId && item.target.voiceId === cursor.voiceId && equal(locate(score, item.target).event.start, cursor.start))
+  const capacity = measureDuration(score.timeSignature)
+  const model = hit ? locate(score, hit.target).event : null
+  const x = hit ? model?.kind === 'rest' && equal(model.duration, capacity) ? bar.x : hit.x - 10 : bar.x + bar.width * (cursor.start.n * capacity.d / cursor.start.d / capacity.n)
+  const line = svgElement('line')
+  line.setAttribute('x1', String(x)); line.setAttribute('x2', String(x))
+  line.setAttribute('y1', String(bar.bottom - 48)); line.setAttribute('y2', String(bar.bottom + 12))
+  line.setAttribute('stroke', '#287ac9'); line.setAttribute('stroke-width', '2'); line.setAttribute('pointer-events', 'none')
+  line.dataset.noteInputCursor = 'true'; line.setAttribute('aria-label', '다음 음표 입력 위치')
+  bar.group.append(line)
+}
+export function paintNoteGhost(scene: EnsembleScene, preview: NoteGhost | null) {
+  const previous = ghosts.get(scene)
+  const key = preview ? JSON.stringify([preview.x, preview.y, preview.duration, preview.rest, preview.accidental, preview.voice, preview.label, preview.valid]) : ''
+  if (preview && previous?.group.parentNode === preview.svg && previous.key === key) return
+  previous?.group.remove(); ghosts.delete(scene)
+  if (!preview) return
+  const group = svgElement('g')
+  group.dataset.noteInputPreview = 'true'; group.dataset.previewPitch = preview.label
+  group.setAttribute('aria-label', `입력 미리보기 ${preview.label}`)
+  group.setAttribute('pointer-events', 'none'); group.setAttribute('opacity', '.52')
+  const color = preview.valid ? VOICE_COLORS[preview.voice] : '#c33636'
+  group.setAttribute('fill', color); group.setAttribute('stroke', 'none')
+  const text = (value: string, x: number, y: number, size = 40) => {
+    const node = svgElement('text'); node.textContent = value
+    node.setAttribute('x', String(x)); node.setAttribute('y', String(y))
+    node.setAttribute('font-family', 'Bravura'); node.setAttribute('font-size', String(size)); group.append(node)
+  }
+  if (!preview.rest) {
+    const ledger = (y: number) => {
+      const line = svgElement('line'); line.setAttribute('x1', String(preview.x - 10)); line.setAttribute('x2', String(preview.x + 10))
+      line.setAttribute('y1', String(y)); line.setAttribute('y2', String(y)); line.setAttribute('stroke', color); line.setAttribute('stroke-width', '1'); group.append(line)
+    }
+    for (let y = preview.bottom + 10; y <= preview.y; y += 10) ledger(y)
+    for (let y = preview.bottom - 50; y >= preview.y; y -= 10) ledger(y)
+  }
+  const y = preview.rest ? preview.bottom - 20 : preview.y
+  text(rhythmSymbol(preview.duration, preview.rest), preview.x - 5, y)
+  if (preview.duration.n === 3) text('\ue1e7', preview.x + 10, y - 5)
+  if (!preview.rest && preview.accidental !== null) text(preview.accidental === 1 ? '\ue262' : preview.accidental === -1 ? '\ue260' : '\ue261', preview.x - 20, y)
+  preview.svg.append(group)
+  ghosts.set(scene, { group, key })
 }

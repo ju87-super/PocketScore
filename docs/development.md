@@ -71,7 +71,7 @@ Chromium 테스트를 실행합니다. 별도 Pages 배포 설정과 Windows 테
 ## 편집 규칙
 
 아래 온음계/Shift 반음 규칙은 `/legacy/` 편집기 기준입니다. 기본 Studio의
-2026-10-24 규칙은 **↑↓ 반음, Shift+←→ 범위 선택, Shift/Ctrl+클릭 다중 선택**이며
+2026-10-25 규칙은 **MuseScore식 N·숫자키·A–G·Shift+A–G·0 입력, ↑↓ 반음, Shift+←→ 범위 선택, Shift/Ctrl+클릭 다중 선택**이며
 [선택·이력 보고](score-selection-history.md)와 [입력 계약](pocketscore2-input-ux.md)을 따릅니다.
 
 - 왼쪽 도구 막대는 접이식입니다. 하단 고정 입력 패널은 없습니다.

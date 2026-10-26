@@ -1,11 +1,17 @@
-import { resizeEvent, setAccidental, setKeySignature, setTimeSignature, transposeEvent } from '../music/score'
+import { eventPitches, locate, resizeEvent, setAccidental, setKeySignature, setTimeSignature, transposeEvent } from '../music/score'
+import type { Pitch } from '../music/pitch'
 import type { Action } from '../editor/state'
 import type { Mixer, Project, ProjectSelection } from './model'
-import { allSelections, createProject, freshScoreEvents, staffAt, updateStaff, validateProject } from './model'
+import { allSelections, createProject, DRUMS, freshScoreEvents, staffAt, updateStaff, validateProject } from './model'
 import { isGroupSelection, navigationTargets, pickSelection, reconcileSelection, singleSelection, targetKey, transposeSelection, validTarget } from './selection'
 import type { ScoreSelection } from './selection'
+import { addEntryChord, beginEntry, createNoteEntry, entryPosition, followingPosition, letterPitch, reconcileEntry, writeEntry } from './noteEntry'
+import type { EntryPosition, NoteEntry } from './noteEntry'
+import { addVoice } from './structure'
+import { compare } from '../music/rational'
+import { midi } from '../music/pitch'
 
-export type Snapshot = Readonly<{ project: Project; selection: ProjectSelection | null; selected: ScoreSelection | null }>
+export type Snapshot = Readonly<{ project: Project; selection: ProjectSelection | null; selected: ScoreSelection | null; entry: NoteEntry }>
 type Sound = Readonly<{ master: number; parts: Readonly<Record<string, Mixer>> }>
 export type ProjectState = Readonly<{
   present: Snapshot; past: readonly Snapshot[]; future: readonly Snapshot[]
@@ -20,6 +26,11 @@ export type ProjectAction =
   | { type: 'pick'; selection: ProjectSelection; extend?: boolean; additive?: boolean }
   | { type: 'navigate'; direction: -1 | 1; extend?: boolean }
   | { type: 'sound'; change: (project: Project) => Project }
+  | { type: 'entryMode'; enabled: boolean; selection?: ProjectSelection }
+  | { type: 'entrySettings'; settings: Partial<Pick<NoteEntry, 'duration' | 'accidental' | 'rest' | 'chord'>> }
+  | { type: 'entryWrite'; letter?: Pitch['step']; pitch?: Pitch; position?: EntryPosition; chord?: boolean; chordTarget?: ProjectSelection; rest?: boolean }
+  | { type: 'entryVoice'; index: number; selection?: ProjectSelection }
+  | { type: 'deleteSelected' }
   | { type: 'undo' | 'redo' | 'cancel' }
 
 const captureSound = (project: Project, previous?: Sound): Sound => ({ master: project.masterVolume, parts: { ...previous?.parts, ...Object.fromEntries(project.parts.map(part => [part.id, part.mixer])) } })
@@ -34,7 +45,7 @@ function sameFields(a: object, b: object, excluded: readonly string[]) {
 // Compare all score fields; only explicitly external sound fields are omitted.
 const sameMusic = (a: Project, b: Project) => sameFields(a, b, ['masterVolume', 'parts']) && a.parts.length === b.parts.length
   && a.parts.every((part, i) => sameFields(part, b.parts[i], ['mixer']))
-export const createProjectState = (project = createProject()): ProjectState => ({ present: { project, selection: null, selected: null }, past: [], future: [], gesture: null, notice: '', sound: captureSound(project) })
+export const createProjectState = (project = createProject()): ProjectState => ({ present: { project, selection: null, selected: null, entry: createNoteEntry() }, past: [], future: [], gesture: null, notice: '', sound: captureSound(project) })
 function commit(state: ProjectState, next: Snapshot, before = state.present): ProjectState {
   if (next.project === before.project) return { ...state, present: next, gesture: null }
   const errors = validateProject(next.project)
@@ -42,8 +53,9 @@ function commit(state: ProjectState, next: Snapshot, before = state.present): Pr
   const selected = reconcileSelection(next.project, next.selected)
   const selection = next.selection && validTarget(next.project, next.selection) ? next.selection : selected?.focus ?? null
   const sound = captureSound(next.project, state.sound)
-  if (sameMusic(before.project, next.project)) return { ...state, present: { ...next, selection, selected }, sound, gesture: null, notice: '' }
-  return { present: { ...next, selection, selected }, past: [...state.past, before].slice(-100), future: [], gesture: null, notice: '', sound }
+  const entry = reconcileEntry(next.project, next.entry)
+  if (sameMusic(before.project, next.project)) return { ...state, present: { ...next, selection, selected, entry }, sound, gesture: null, notice: '' }
+  return { present: { ...next, selection, selected, entry }, past: [...state.past, before].slice(-100), future: [], gesture: null, notice: '', sound }
 }
 
 export function projectReducer(state: ProjectState, input: ProjectAction): ProjectState {
@@ -55,10 +67,74 @@ export function projectReducer(state: ProjectState, input: ProjectAction): Proje
       const source = action.type === 'undo' ? state.past : state.future
       const next = source.at(-1)
       if (!next) return state
-      const restored = { ...next, project: restoreSound(next.project, state.sound) }
+      const restored = { ...next, project: restoreSound(next.project, state.sound), entry: { ...next.entry,
+        enabled: state.present.entry.enabled, duration: state.present.entry.duration, rest: state.present.entry.rest, chord: state.present.entry.chord, accidental: null } }
       return action.type === 'undo'
         ? { ...state, present: restored, past: state.past.slice(0, -1), future: [...state.future, state.present], notice: '' }
         : { ...state, present: restored, past: [...state.past, state.present], future: state.future.slice(0, -1), notice: '' }
+    }
+    if (input.type === 'entryMode') {
+      const target = input.selection ?? state.present.selection
+      const entry = input.enabled ? beginEntry(state.present.project, state.present.entry, target)
+        : { ...state.present.entry, enabled: false, accidental: null, chord: false }
+      return { ...state, present: { ...state.present, entry,
+        ...(input.enabled && target ? { selection: target, selected: singleSelection(target) } : {}) }, notice: '' }
+    }
+    if (input.type === 'entrySettings') return { ...state, present: { ...state.present, entry: { ...state.present.entry, ...input.settings } }, notice: '' }
+    if (input.type === 'entryVoice') {
+      if (!Number.isInteger(input.index) || input.index < 0 || input.index > 3) throw new Error('성부는 1–4번까지 지원합니다.')
+      let { project } = state.present
+      const origin = state.present.entry.enabled && state.present.entry.cursor ? state.present.entry.cursor
+        : entryPosition(project, input.selection ?? state.present.selection ?? allSelections(project)[0])
+      while (staffAt(project, origin).staff.score.measures[0].voices.length <= input.index) project = addVoice(project, origin.staffId)
+      const staff = staffAt(project, origin).staff
+      const voice = staff.score.measures.find(bar => bar.id === origin.measureId)!.voices[input.index]
+      const event = voice.events.find(item => compare(item.start, origin.start) >= 0) ?? voice.events.at(-1)!
+      const selection = { partId: origin.partId, staffId: origin.staffId, voiceId: voice.id, measureId: origin.measureId, eventId: event.id }
+      return commit(state, { ...state.present, project, selection, selected: singleSelection(selection), entry: { ...state.present.entry, cursor: { ...origin, voiceId: voice.id }, last: null, chord: false } })
+    }
+    if (input.type === 'entryWrite') {
+      const before = state.present
+      let entry = before.entry
+      if (input.position) entry = { ...entry, cursor: input.chordTarget
+        ? followingPosition(before.project, input.position, locate(staffAt(before.project, input.chordTarget).staff.score, input.chordTarget).event.duration) : input.position }
+      const chordTarget = input.chordTarget ?? (input.chord ? entry.enabled ? entry.last : before.selection : null)
+      if (input.chord && !chordTarget) throw new Error('화음에 추가할 음표를 먼저 입력하거나 선택하세요.')
+      if (chordTarget && isGroupSelection(before.selected)) throw new Error('화음 입력은 음표 하나를 선택한 뒤 사용하세요.')
+      let value = input.rest ? null : input.pitch
+      if (input.letter) {
+        if (chordTarget) {
+          const targetEntry = { ...entry, cursor: entryPosition(before.project, chordTarget) }
+          const tones = eventPitches(locate(staffAt(before.project, chordTarget).staff.score, chordTarget).event)
+          const highest = [...tones].sort((a, b) => midi(b) - midi(a))[0]
+          value = letterPitch(before.project, targetEntry, input.letter, highest)
+        } else value = letterPitch(before.project, entry, input.letter)
+      }
+      const origin = chordTarget ?? entry.cursor
+      if (origin && staffAt(before.project, origin).part.instrument === 'drums' && value) {
+        const drum = DRUMS.find(item => item.midi === midi(value!))
+        if (!drum) throw new Error('드럼은 마우스·펜으로 킥·스네어·하이햇 위치를 선택하세요.')
+      }
+      if (value === undefined) value = null
+      const result = chordTarget && value ? addEntryChord(before.project, entry, chordTarget, value) : writeEntry(before.project, entry, value)
+      return commit(state, { ...before, ...result, selected: singleSelection(result.selection) })
+    }
+    if (input.type === 'deleteSelected') {
+      const { selected } = state.present
+      if (!selected) return state
+      const keys = new Set(selected.targets.map(targetKey))
+      let changed = false
+      const project = { ...state.present.project, parts: state.present.project.parts.map(part => ({ ...part, staves: part.staves.map(staff => ({ ...staff,
+        score: { ...staff.score, measures: staff.score.measures.map(bar => ({ ...bar, voices: bar.voices.map(voice => ({ ...voice, events: voice.events.map(event => {
+          const pitches = eventPitches(event).filter((_, pitchIndex) => !keys.has(targetKey({ partId: part.id, staffId: staff.id, measureId: bar.id, voiceId: voice.id, eventId: event.id, pitchIndex })))
+          if (pitches.length === eventPitches(event).length) return event
+          changed = true
+          const base = { id: event.id, start: event.start, duration: event.duration }
+          return pitches.length ? { ...base, kind: 'note' as const, pitch: pitches[0], chord: pitches.slice(1) } : { ...base, kind: 'rest' as const }
+        }) })) })) },
+      })) })) }
+      if (!changed) return state
+      return commit(state, { ...state.present, project })
     }
     if (input.type === 'sound') {
       const project = input.change(state.present.project)
@@ -72,7 +148,8 @@ export function projectReducer(state: ProjectState, input: ProjectAction): Proje
     if (input.type === 'selection') return { ...state, present: { ...state.present, selection: input.selection, selected: input.selection ? pickSelection(state.present.project, null, input.selection) : null }, notice: '' }
     if (input.type === 'pick') {
       const selected = pickSelection(state.present.project, state.present.selected, input.selection, input.extend, input.additive)
-      return { ...state, present: { ...state.present, selected, selection: selected?.focus ?? null }, notice: '' }
+      return { ...state, present: { ...state.present, selected, selection: selected?.focus ?? null,
+        entry: input.extend || input.additive ? { ...state.present.entry, enabled: false } : state.present.entry }, notice: '' }
     }
     if (input.type === 'navigate') {
       const all = navigationTargets(state.present.project)
@@ -81,7 +158,8 @@ export function projectReducer(state: ProjectState, input: ProjectAction): Proje
       const index = current < 0 ? (input.direction === 1 ? 0 : all.length - 1) : Math.max(0, Math.min(all.length - 1, current + input.direction))
       const point = { ...all[index], pitchIndex: 0 }
       const selected = pickSelection(state.present.project, state.present.selected, point, input.extend)
-      return { ...state, present: { ...state.present, selection: point, selected }, notice: '' }
+      return { ...state, present: { ...state.present, selection: point, selected, entry: state.present.entry.enabled
+        ? { ...state.present.entry, enabled: !input.extend, cursor: entryPosition(state.present.project, point), last: null } : state.present.entry }, notice: '' }
     }
     if (input.type !== 'canvas') return state
     if (action.type === 'begin' || action.type === 'select') {

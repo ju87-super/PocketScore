@@ -1,84 +1,63 @@
-# PocketScore 2.0 — mandatory S Pen and keyboard editing contract
+# PocketScore 2.0 — Studio input and selection contract
 
-Status: **updated by user feedback 2026-10-24**. Preserve direct pitch/duration gestures for single events. Studio now uses chromatic keyboard pitch and semantic range/list selection; the legacy editor retains its old keyboard profile. MuseScore Studio is the UI/function/sound reference and Songsterr the web-interaction reference.
+Status: **user override 2026-10-26: graphical controls first, keyboard optional**. Studio now follows MuseScore Studio 4.7.5 step-time input. This supersedes the earlier requirement for horizontal duration dragging in Studio. The legacy editor keeps its original gestures and keyboard profile. UI/sound reference: MuseScore; web interaction reference: Songsterr.
 
-## Input modalities and behavior
+## Graphical input (primary)
 
-### S Pen / precise pointer: direct editing
+- Follow the grouped notation toolbar, checked state and docked workspace of MuseScore Studio 4.7.5. Use our existing Bravura symbols and accessible 44px web controls.
+- Select the note-input tool, choose a duration symbol, and click/tap the staff. Show a translucent shadow note at the exact snapped onset and pitch without changing score data.
+- Select the chord tool after entering/selecting a note and tap other heights in that bar to stack tones. No modifier key is required. The rest, dot, accidental, four voice and history buttons are directly available.
+- Return to the selection tool to edit. Properties provide whole-chord selection, semitone up/down and deletion. Preserve the earlier range/list rules and the group duration ban.
+- Left dock tabs expose real palettes/settings and instruments; right properties remain collapsible. Keep no permanent bottom input panel. Compact top file/playback tools and horizontal toolbar scrolling preserve space on small screens.
+- Keep keyboard lists inside optional help, not the default screen. Do not show interactive controls for unsupported musical features.
 
-- Tap an empty staff location in **note input mode** to place a note at the snapped pitch and rhythmic cursor position; note input may also use MuseScore-style selection/duration controls.
-- Tap/select an existing note, then **drag horizontally** to alter its notated duration: right = longer, left = shorter. Update the notation preview while dragging; commit as **one undoable change on pointer release**.
-- **Drag vertically** on an existing pitched note to alter its **pitch**: up = higher, down = lower. Default steps are **diatonic** and respect staff/key context.
-- For a newly placed note, allow continuing into a gesture only when pointer disambiguation is reliable; do not create an extra note when a drag was intended.
-- Rest horizontal drag changes rest duration, with correct time conservation. Vertical gestures on rests **do not** transpose them.
-- Never change pitch and duration simultaneously on a single ambiguous diagonal drag. Determine one axis after an initial movement threshold and **lock it** for that gesture.
-- Preserve current prototype gesture semantics for the first implementation: 8 CSS px movement threshold, clear-axis ratio >1.2, upward pitch increments about every 10 CSS px, duration steps about every 32 CSS px. Make thresholds configurable / calibratable for touch sizes, zoom and stylus sensitivity instead of baking these values permanently into layout.
-- Use a **fixed snapshot of the pre-gesture score** for previews, not repeated edits that accumulate pitch or duration changes each pointermove.
-- Prevent accidental edits from palm touches and nonprimary pointers; support pressure-agnostic Pointer Events. Do not assume Samsung proprietary APIs. Never promise physical S Pen palm rejection without testing on hardware.
-- Invalid musical edits must be rejected explicitly with a message and restored to the last valid or pre-drag state. On pointercancel, capture loss, Escape or focus loss, restore the **complete pre-gesture state**.
-- Dragging a pitch/duration must not corrupt part/staff/voice IDs, rhythmic values, adjacent events or ties. Time remains exact (fractions / ticks), not dependent on pixel rounding.
+## Keyboard input (optional)
 
-### Keyboard: retain and extend prototype behavior
-
-| Key | Behavior |
+| Input | Behavior |
 | --- | --- |
-| Up | Raise selected pitch(es) by one semitone |
-| Down | Lower selected pitch(es) by one semitone |
-| Shift + Left / Right | Extend/contract selection from its fixed time anchor |
-| Shift + click | Select inclusive time and voice/staff range; at the same onset include entire chords, even in different voices/instruments |
-| Ctrl/Cmd + click | Toggle individual pitched noteheads only, across voices/staves/instruments |
-| Left / Right | Move edit cursor to previous / next **rhythm event**, including rests and across barlines |
-| Ctrl/Cmd + Z | Undo |
-| Ctrl/Cmd + Shift + Z or Ctrl + Y | Redo |
-| Escape | Cancel in-progress gesture / edit |
+| N | Toggle note input at the selected event, or the active staff's first position |
+| 3 / 4 / 5 / 6 / 7 | 16th / eighth / quarter / half / whole duration, matching MuseScore's numbering |
+| . | Toggle a supported single dot (eighth, quarter, half) |
+| A–G | Enter the named pitch at the next input position, choosing the nearest written octave |
+| Shift+A–G | Add a pitch above the last entered or singly selected chord; retain duration and next input position |
+| 0 | Enter a rest and advance by the chosen duration |
+| Ctrl/Cmd+Alt+1–4 | Switch/create an input voice at the current time |
+| Escape | Exit input; cancel pending pointer input or pitch drag |
+| Delete / Backspace | Remove selected pitches, using an equal-length rest if none remain |
 
-- Do not transpose rests on Up/Down; navigation remains available.
-- Prevent keyboard shortcuts from hijacking focus in text inputs, menu controls and other widgets.
-- Preserve selected event identity and scroll it into view on navigation, including instrument/multiple-staff context.
-- Define predictable multi-note selection rules; do not silently change a chord when only one pitch is selected.
-- No Shift+Up/Down chord-component selection. Use Shift+click for the complete same-time chord column and Ctrl/Cmd+click for individual components.
-- Group pitch edits preserve intervals and are atomic. Reject the complete edit on pitch collisions or range errors. Rests and unpitched percussion retain their pitch.
-- Group selection blocks both shortening and lengthening, via controls and pointer gestures. No blue drag rectangle; selected measure backgrounds and noteheads show the selection.
-- Whole-measure selections include all voices of that staff. Ranges cross intervening voices and instrument staves, using exact musical onsets rather than SVG order.
-- Score history includes structural, pitch, duration, key/meter, title and written tempo edits. Keep current master volume and mixer presets/volume/pan/mute/solo through undo/redo, including restoration of a removed instrument.
+- Input has a visible caret. Durations, accidental choice, reference pitch and cursor are transient editor state, outside canonical project JSON and SVG layout.
+- Mouse/pen taps in input mode use the chosen voice's nearest existing onset and the clicked staff height. Tapping another height at an existing pitched onset adds it to the chord, without opening properties. Shift+click in input mode replaces the clicked time span, following MuseScore's mouse-input controller; outside input mode it selects a range.
+- The accidental buttons choose the next input alteration. Subsequent notes follow the shared step/octave accidental state in the measure and reset at the barline. Chords do not advance time.
+- Step-time input replaces exactly its chosen time span in one voice. Other voices/staves and content outside that span are preserved. This differs from resizing an existing event, which may consume only following rests.
+- At the end of the score, the next input atomically adds a measure to every staff along with the note. One Undo removes both.
+- 32nd/64th notes, double-whole notes, unsupported dots, automatic ties across barlines, tied fragments and tuplets remain unsupported. Reject them explicitly; never silently retime or approximate the score. Supported pitch range remains C2–C7 and chords contain at most eight distinct pitches.
+- MIDI entry, repitch/rhythm-only modes and the complete MuseScore shortcut set are future work. This implements the basic step-time workflow, not all MuseScore functions.
 
-### Touch / navigation
+## Selection and existing-note editing
 
-- Separate **edit mode** from **navigation (scroll/pan/zoom) mode**. Finger scrolling must not accidentally lengthen notes or change pitch. Use touch-friendly targets and contextual tools.
-- Pen editing remains available without holding a mouse button or relying on handwriting recognition.
-- Large blank score canvas, collapsible palettes and properties, with controls that do not obstruct gestures.
+- Up/Down transposes selected pitched components by semitone, single or group. Rests and unpitched percussion are unchanged.
+- Left/Right traverses rhythm events, including rests/barlines; Shift+Left/Right extends/contracts a fixed-anchor range. Range selection exits input mode.
+- Outside input mode, Shift+click selects the inclusive time × voice/staff range, including whole chords at the same onset and intervening instrument staves. Ctrl/Cmd+click toggles individual pitched components only, across voices/instruments; it exits input mode.
+- No Shift+Up/Down chord-selection shortcut. Whole-measure selection includes every voice in that staff's measure.
+- Groups preserve pitch intervals and reject both shortening and lengthening through numeric keys, controls and gestures. Reject a complete batch on collisions/range errors.
+- A single note can still be dragged vertically using staff/key steps. An axis is locked after the movement threshold; horizontal movement does not resize Studio events. The legacy editor retains horizontal duration drag.
+- Preview from the original snapshot; one completed pitch drag is one Undo. Cancel, capture loss, Escape, blur, hidden document or reflow restores the complete score/selection state.
+- No native UI text drag or selection rectangle. Purple noteheads and measure backgrounds show selected content. Keep ordinary text editing in inputs.
 
-## Rhythmic invariants and behavior
+## History, focus and touch
 
-- Preserve beat totals per voice/measure: shortening creates equivalent rest duration; lengthening may consume available subsequent rests without deleting sounded notes or silently crossing a barline.
-- For lengthening past a note or barline, either provide a separately designed, explicitly invoked insert/ripple edit mode **or** reject safely; ordinary drag must not move following notes without an explicit mode.
-- Ensure bracketed tuplets / ties are correctly handled if supported; never approximate unsupported durations or lose notation silently.
-- Drag directions should be consistent across zoom, landscape/portrait and renderer changes, regardless of MuseScore C++ WASM vs VexFlow backend.
+- Ctrl/Cmd+Z, Ctrl+Y and Ctrl/Cmd+Shift+Z cover score edits, including structures, title, written tempo, key/meter and entry. Restore input positions through history while preserving the currently chosen mode/duration.
+- Mixer presets/volume/pan/mute/solo and master volume remain current through score Undo/Redo. Sound-only changes do not clear Redo.
+- Ignore notation shortcuts in text inputs, selects, editable content, dialogs and IME composition. Preserve browser/control keyboard handling.
+- Use normal Pointer Events for mouse, pen and touch. Pending input commits on release only; movement/cancellation leaves the score untouched. A second finger cancels an in-progress finger edit. Finger navigation is the default; enable finger editing explicitly.
+- Maintain the collapsible left palette and score space. No permanent bottom input panel.
+- Browser pen/touch emulation does not prove physical Galaxy Tab/S Pen behavior. Log hardware and human listening checks separately.
 
-## Required automated acceptance coverage
+## Required verification
 
-1. Right/left duration direction, step snapping and minimum/maximum duration boundaries.
-2. Up/down pitch sign and diatonic intervals across B–C / E–F and key signature contexts.
-3. Default arrow chromatic semitone spelling, including partial chord/group edits; Shift+Left/Right range expansion and contraction.
-4. Arrow left/right traverses notes/rests and crosses barlines and part/staff boundaries predictably.
-5. Preview from original snapshot; no incremental drifting during pointer motion.
-6. Axis selection/locking, small jitter threshold and diagonal motion.
-7. Undo/redo records one entire drag operation, not one record per pointermove.
-8. pointercancel/lostpointercapture/Escape/focus loss revert complete gesture.
-9. Dragging a rest never changes pitch; duration edits preserve exact voice totals and don't erase a following note.
-10. Touch navigation never fires edit actions; pointer identity and stylus handling exercised using Playwright's emulation.
-11. Selection and editing still work after save/reload and after re-render.
-12. Manual tests on **real Samsung Galaxy Tab + S Pen** must be logged separately; browser stylus emulation is not a substitute.
+- Deterministic tests: exact cursor advancement, named pitches/octaves, chord stacking, accidental state/reset, overwrite boundaries, rest lengths, voice isolation, rejected barline/tie edits, atomic measure addition, Undo/Redo, duration dots and deletion.
+- Chromium: eight pointer-only workflows cover chord entry, exact dotted/rest/accidental timing, voice state, readonly shadow notes, palettes/instruments, real pen pointer-ID cancellation and 390/800px touch. Also keep the actual N→5→C→Shift+E→Shift+G workflow from a blank score; mouse/pen chord entry without a properties panel; cancellation, keyboard focus, voice switching, history, portrait reflow and save/reopen.
+- Preserve existing selection, playback, MusicXML and legacy gesture coverage. Update only Studio expectations explicitly superseded by the user's new input instruction; do not delete tests or treat unsupported features as passing.
+- Canonical data remains independent of SVG/audio/UI; all musical time stays exact rational arithmetic.
 
-## Architectural placement
-
-Implement input logic in an **InputController / GestureInterpreter** above the score command API. The controller dispatches semantic commands such as `ChangePitch`, `ChangeDuration`, `SelectEvent`, and `NavigateCursor`. Rendering engine integration must not directly own or reinterpret these gestures. This avoids losing the original PocketScore UX while adopting MuseScore's engraving/model implementation.
-
-Current prototype references:
-- `src/editor/gesture.ts`
-- `src/editor/ScoreCanvas.tsx`
-- `src/editor/state.ts`
-- `src/music/score.ts`
-- `src/editor/gesture.test.ts`, `src/editor/state.test.ts`
-
-**Release blocker:** Do not ship the PocketScore 2.0 editor without basic horizontal-duration, vertical-pitch and arrow-key operations, regardless of how MuseScore-like its appearance becomes.
+Reference shortcuts: [MuseScore v4.7.5 shortcuts.xml](https://github.com/musescore/MuseScore/blob/v4.7.5/src/app/configs/data/shortcuts.xml). The MuseScore Qt/C++ engine itself is not running here.

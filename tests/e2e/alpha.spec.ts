@@ -57,14 +57,17 @@ test('Alpha shows four instruments and keeps keyboard, rest/bar traversal and fo
   await page.screenshot({ path: 'test-results/alpha-desktop.png', fullPage: true })
 })
 
-test('Alpha pen locks axes, previews, commits one undo and cancels safely', async ({ page }) => {
+test('Alpha pen edits pitch, ignores horizontal duration drags and supports keyboard duration with undo', async ({ page }) => {
   await page.getByRole('button', { name: '속성', exact: true }).click()
   const cdp = await page.context().newCDPSession(page)
   let point = await center(page.locator('[data-event-id=m1-e1]'))
   await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', buttons: 1, clickCount: 1, pointerType: 'pen' })
   await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: point.x + 32, y: point.y, button: 'left', buttons: 1, pointerType: 'pen' })
-  await expect(page.getByLabel('선택 상태')).toContainText('점4분음표')
+  await expect(page.getByLabel('선택 상태')).toContainText('C4 4분음표')
   await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: point.x + 32, y: point.y, button: 'left', buttons: 0, clickCount: 1, pointerType: 'pen' })
+  await expect(page.getByRole('button', { name: '실행 취소', exact: true })).toBeDisabled()
+  await page.keyboard.press('.')
+  await expect(page.getByLabel('선택 상태')).toContainText('점4분음표')
   await page.getByRole('button', { name: '실행 취소', exact: true }).click()
   await expect(page.getByLabel('선택 상태')).toContainText('C4 4분음표')
   await expect(page.getByRole('button', { name: '실행 취소', exact: true })).toBeDisabled()
@@ -83,9 +86,9 @@ test('Alpha pen locks axes, previews, commits one undo and cancels safely', asyn
 test('Alpha creates notes, voices and selected chord tones and reloads complete mixer/project data', async ({ page }) => {
   await menu(page, '파일', '새 악보')
   await page.getByRole('button', { name: '속성', exact: true }).click()
-  await page.getByRole('button', { name: 'N 음표 입력', exact: true }).click()
+  await page.getByRole('button', { name: '음표 입력', exact: true }).click()
   await page.locator('.event-target').first().click()
-  await page.getByRole('button', { name: 'N 음표 입력', exact: true }).click()
+  await page.getByRole('button', { name: '음표 입력', exact: true }).click()
   const note = page.locator('.event-target').first()
   await note.click()
   await page.getByRole('button', { name: '화음에 3도 추가', exact: true }).click()
@@ -96,7 +99,7 @@ test('Alpha creates notes, voices and selected chord tones and reloads complete 
   await page.keyboard.press('ArrowUp')
   await expect(page.getByLabel('화음 구성음').locator('option').first()).toHaveText(originalTone!)
   await menu(page, '추가', '성부 추가')
-  await expect(page.getByLabel('입력 성부').locator('option')).toHaveCount(2)
+  expect((await save(page)).parts[0].staves[0].score.measures[0].voices).toHaveLength(2)
   await page.getByRole('button', { name: '믹서', exact: true }).click()
   await page.getByLabel('피아노 뮤트', { exact: true }).click()
   const saved = await save(page)
@@ -109,7 +112,7 @@ test('Alpha creates notes, voices and selected chord tones and reloads complete 
 
 test('Alpha blank-staff insertion commits on release and pointer cancellation leaves the score untouched', async ({ page }) => {
   await menu(page, '파일', '새 악보')
-  await page.getByRole('button', { name: 'N 음표 입력', exact: true }).click()
+  await page.getByRole('button', { name: '음표 입력', exact: true }).click()
   const before = await save(page)
   const entry = page.locator('.entry-target').first()
   await entry.scrollIntoViewIfNeeded()
@@ -139,12 +142,12 @@ test('Alpha imports valid MusicXML and refuses unsupported notation without chan
 
 test('Alpha plays real bundled SF3 PCM, pauses, seeks, stops and restarts without residual output', { tag: '@audio' }, async ({ page }) => {
   test.setTimeout(120000)
-  await page.getByRole('button', { name: '재생', exact: true }).click()
+  await page.locator('.score-surface').focus(); await page.keyboard.press('Space')
   await expect(page.getByRole('button', { name: '일시정지', exact: true })).toBeVisible({ timeout: 90000 })
   await expect.poll(async () => Number(await page.getByLabel('출력 진폭').textContent()), { timeout: 15000 }).toBeGreaterThan(0.001)
   await expect(page.locator('[data-playing-measure="0"]')).toHaveCount(4)
   await expect(page.locator('[data-playback-cursor]')).toHaveCount(4)
-  await page.getByRole('button', { name: '일시정지', exact: true }).click()
+  await page.locator('.score-surface').focus(); await page.keyboard.press('Space')
   await expect.poll(async () => Number(await page.getByLabel('출력 진폭').textContent())).toBe(0)
   const paused = Number(await page.getByLabel('재생 위치').inputValue())
   await page.waitForTimeout(250)
