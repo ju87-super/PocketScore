@@ -10,6 +10,8 @@ import type { EntryPosition, NoteEntry } from './noteEntry'
 import { addVoice } from './structure'
 import { compare } from '../music/rational'
 import { midi } from '../music/pitch'
+import { copyScoreSelection, pasteScoreSelection } from './clipboard'
+import type { ScoreClipboard } from './clipboard'
 
 export type Snapshot = Readonly<{ project: Project; selection: ProjectSelection | null; selected: ScoreSelection | null; entry: NoteEntry }>
 type Sound = Readonly<{ master: number; parts: Readonly<Record<string, Mixer>> }>
@@ -18,6 +20,7 @@ export type ProjectState = Readonly<{
   gesture: Readonly<{ before: Snapshot; target: ProjectSelection; selected: ScoreSelection }> | null
   notice: string
   sound: Sound
+  clipboard: ScoreClipboard | null
 }>
 export type ProjectAction =
   | { type: 'canvas'; partId: string; staffId: string; action: Action }
@@ -31,6 +34,8 @@ export type ProjectAction =
   | { type: 'entryWrite'; letter?: Pitch['step']; pitch?: Pitch; position?: EntryPosition; chord?: boolean; chordTarget?: ProjectSelection; rest?: boolean }
   | { type: 'entryVoice'; index: number; selection?: ProjectSelection }
   | { type: 'deleteSelected' }
+  | { type: 'copySelected' | 'copyMeasure' }
+  | { type: 'paste'; target?: ProjectSelection }
   | { type: 'undo' | 'redo' | 'cancel' }
 
 const captureSound = (project: Project, previous?: Sound): Sound => ({ master: project.masterVolume, parts: { ...previous?.parts, ...Object.fromEntries(project.parts.map(part => [part.id, part.mixer])) } })
@@ -45,7 +50,7 @@ function sameFields(a: object, b: object, excluded: readonly string[]) {
 // Compare all score fields; only explicitly external sound fields are omitted.
 const sameMusic = (a: Project, b: Project) => sameFields(a, b, ['masterVolume', 'parts']) && a.parts.length === b.parts.length
   && a.parts.every((part, i) => sameFields(part, b.parts[i], ['mixer']))
-export const createProjectState = (project = createProject()): ProjectState => ({ present: { project, selection: null, selected: null, entry: createNoteEntry() }, past: [], future: [], gesture: null, notice: '', sound: captureSound(project) })
+export const createProjectState = (project = createProject()): ProjectState => ({ present: { project, selection: null, selected: null, entry: createNoteEntry() }, past: [], future: [], gesture: null, notice: '', sound: captureSound(project), clipboard: null })
 function commit(state: ProjectState, next: Snapshot, before = state.present): ProjectState {
   if (next.project === before.project) return { ...state, present: next, gesture: null }
   const errors = validateProject(next.project)
@@ -55,7 +60,7 @@ function commit(state: ProjectState, next: Snapshot, before = state.present): Pr
   const sound = captureSound(next.project, state.sound)
   const entry = reconcileEntry(next.project, next.entry)
   if (sameMusic(before.project, next.project)) return { ...state, present: { ...next, selection, selected, entry }, sound, gesture: null, notice: '' }
-  return { present: { ...next, selection, selected, entry }, past: [...state.past, before].slice(-100), future: [], gesture: null, notice: '', sound }
+  return { ...state, present: { ...next, selection, selected, entry }, past: [...state.past, before].slice(-100), future: [], gesture: null, notice: '', sound }
 }
 
 export function projectReducer(state: ProjectState, input: ProjectAction): ProjectState {
@@ -63,6 +68,18 @@ export function projectReducer(state: ProjectState, input: ProjectAction): Proje
   if (action.type === 'cancel') return state.gesture ? { ...state, present: state.gesture.before, gesture: null, notice: '드래그를 취소했습니다.' } : state
   if (state.gesture && !['previewPitch', 'previewDuration', 'commit'].includes(action.type)) return state
   try {
+    if (input.type === 'copySelected' || input.type === 'copyMeasure') {
+      const selected = input.type === 'copyMeasure' && state.present.selection
+        ? pickSelection(state.present.project, null, { ...state.present.selection, scope: 'measure' }) : state.present.selected
+      const clipboard = copyScoreSelection(state.present.project, selected)
+      return { ...state, clipboard, notice: `${clipboard.rows.length}개 성부의 선택 요소를 복사했습니다.` }
+    }
+    if (input.type === 'paste') {
+      const result = pasteScoreSelection(state.present.project, state.clipboard, input.target ?? state.present.selection)
+      const next = commit(state, { ...state.present, project: result.project, selection: result.selection, selected: result.selected,
+        entry: { ...state.present.entry, enabled: false, last: null, cursor: null } })
+      return { ...next, notice: `붙여넣기 완료${result.addedMeasures ? ` · ${result.addedMeasures}마디 추가` : ''}${result.skippedRows ? ` · 아래 성부 부족으로 ${result.skippedRows}개 성부 건너뜀` : ''}` }
+    }
     if (action.type === 'undo' || action.type === 'redo') {
       const source = action.type === 'undo' ? state.past : state.future
       const next = source.at(-1)

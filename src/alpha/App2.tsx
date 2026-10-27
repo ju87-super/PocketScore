@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import type { ChangeEvent, CSSProperties, ReactNode } from 'react'
 import { createProjectState, projectReducer } from '../project/state'
-import { createProject, DRUMS, INSTRUMENTS, makePart, primaryScore, replaceEvent, staffAt, uid, updateStaff, validateProject } from '../project/model'
+import { createProject, DRUMS, INSTRUMENTS, makePart, primaryScore, replaceEvent, staffAt, updateStaff, validateProject } from '../project/model'
 import type { Instrument, Part, Project, ProjectSelection } from '../project/model'
 import { addMeasure, addStaff, addVoice, removeMeasure, removeVoice } from '../project/structure'
 import { DURATIONS, durationName, eventName, eventPitches, locate } from '../music/score'
-import type { RhythmEvent } from '../music/score'
 import { movePitch, pitchName } from '../music/pitch'
 import type { Pitch } from '../music/pitch'
 import type { Action } from '../editor/state'
@@ -20,8 +19,9 @@ import type { PlaybackBackend, PlaybackState } from '../playback/backend'
 import EnsembleView from './EnsembleView'
 import NoteInputToolbar from './NoteInputToolbar'
 import DockResizeHandle from './DockResizeHandle'
+import ScoreContextMenu from './ScoreContextMenu'
 import { useScoreViewport } from './useScoreViewport'
-import { isGroupSelection } from '../project/selection'
+import { isGroupSelection, targetKey } from '../project/selection'
 import './studio.css'
 
 function Menu({ name, children }: { name: string; children: ReactNode }) {
@@ -63,6 +63,8 @@ export default function App2() {
   const [continuous, setContinuous] = useState(false)
   const [message, setMessage] = useState('예제 앙상블을 편집하거나 파일 → 새 악보로 시작하세요.')
   const [help, setHelp] = useState(false)
+  const [scoreMenu, setScoreMenu] = useState<{ target: ProjectSelection; x: number; y: number } | null>(null)
+  const dismissScoreMenu = useCallback((restore = true) => { setScoreMenu(null); if (restore) focusScore() }, [])
   const [audio, setAudio] = useState<PlaybackState>(EMPTY_AUDIO)
   const [loading, setLoading] = useState(false)
   const [audioReady, setAudioReady] = useState(false)
@@ -73,9 +75,8 @@ export default function App2() {
   const playerPromise = useRef<Promise<PlaybackBackend> | null>(null)
   const mounted = useRef(true)
   const fileInput = useRef<HTMLInputElement>(null)
+  const contextPick = useRef(false)
   const playButton = useRef<HTMLButtonElement>(null)
-  const clipboard = useRef<readonly (readonly RhythmEvent[])[] | null>(null)
-  const clipboardTime = useRef<TimeSignature>('4/4')
   const projectRef = useRef(project)
   const generation = useRef(0)
   const current = useMemo(() => {
@@ -83,6 +84,7 @@ export default function App2() {
     try { return staffAt(project, active) } catch { return { part: project.parts[0], staff: project.parts[0].staves[0] } }
   }, [project, selection, active])
   const event = selection ? locate(current.staff.score, selection).event : null
+  const menuEvent = (() => { try { return scoreMenu ? locate(staffAt(project, scoreMenu.target).staff.score, scoreMenu.target).event : null } catch { return null } })()
   const score = primaryScore(project)
   const timeline = useMemo(() => compileTimeline(project), [project])
   const measureIndex = selection ? current.staff.score.measures.findIndex(measure => measure.id === selection.measureId) : 0
@@ -154,8 +156,13 @@ export default function App2() {
       if (event.ctrlKey || event.metaKey) {
         if (event.altKey && /^[1-4]$/.test(key)) {
           event.preventDefault(); dispatch({ type: 'entryVoice', index: Number(key) - 1, selection: entryTarget }); focusScore()
+        } else if (!event.altKey && !event.shiftKey && (key === 'c' || key === 'v')
+          && (event.target === document.body || (event.target as Element)?.closest?.('.studio'))) {
+          event.preventDefault()
+          if (!event.repeat) dispatch({ type: key === 'c' ? 'copySelected' : 'paste' })
+          dismissScoreMenu()
         } else if (!event.altKey && (key === 'z' || key === 'y')) {
-          event.preventDefault(); dispatch({ type: key === 'y' || event.shiftKey ? 'redo' : 'undo' })
+          event.preventDefault(); dispatch({ type: key === 'y' || event.shiftKey ? 'redo' : 'undo' }); dismissScoreMenu()
         }
         return
       }
@@ -186,8 +193,9 @@ export default function App2() {
     }
     window.addEventListener('keydown', historyKey)
     return () => window.removeEventListener('keydown', historyKey)
-  }, [state.gesture, entry, selection, project, chooseDuration, entryTarget])
+  }, [state.gesture, entry, selection, project, chooseDuration, entryTarget, dismissScoreMenu])
   useEffect(() => {
+    if (contextPick.current) { contextPick.current = false; return }
     if (!selection) return
     const target = document.querySelector<HTMLElement>(`[data-event-id="${CSS.escape(selection.eventId)}"][data-pitch-index="${selection.pitchIndex ?? 0}"]`)
     reveal(target)
@@ -205,6 +213,7 @@ export default function App2() {
     setMessage('프로젝트를 다운로드했습니다. 음표·성부·믹서·템포를 함께 저장합니다.')
   }
   const replace = (next: Project) => {
+    dismissScoreMenu(false); contextPick.current = false
     reset()
     change(() => next, null)
     dispatch({ type: 'entryMode', enabled: false })
@@ -221,22 +230,23 @@ export default function App2() {
       replace(next); setMessage(`${file.name} 불러오기 완료. 이전 악보는 실행 취소로 복원할 수 있습니다.`)
     } catch (error) { setMessage(error instanceof Error ? error.message : '파일을 열 수 없습니다.') }
   }
-  const copy = () => {
-    if (!selection) { setMessage('복사할 마디의 음표 또는 쉼표를 선택하세요.'); return }
-    clipboard.current = current.staff.score.measures[measureIndex].voices.map(voice => voice.events)
-    clipboardTime.current = score.timeSignature
-    setMessage(`${measureIndex + 1}마디의 모든 성부를 복사했습니다.`)
+  const copy = () => { dispatch({ type: 'copySelected' }); focusScore() }
+  const paste = () => { dispatch({ type: 'paste' }); focusScore() }
+  const pasteMeasure = () => {
+    if (!selection) return
+    const bar = current.staff.score.measures[measureIndex], voice = bar.voices[0]
+    dispatch({ type: 'paste', target: { ...selection, voiceId: voice.id, eventId: voice.events[0].id, scope: 'measure' } }); focusScore()
   }
-  const paste = () => {
-    const copied = clipboard.current
-    if (!selection || !copied) { setMessage('마디를 복사한 뒤 붙여넣을 마디를 선택하세요.'); return }
-    change(before => {
-      const { staff } = staffAt(before, selection)
-      const measure = staff.score.measures[measureIndex]
-      if (clipboardTime.current !== staff.score.timeSignature || copied.length !== measure.voices.length) throw new Error('박자와 성부 수가 같은 마디에만 붙여넣을 수 있습니다.')
-      return updateStaff(before, staff.id, item => ({ ...item, score: { ...item.score, measures: item.score.measures.map(bar => bar.id !== measure.id ? bar : { ...bar, voices: bar.voices.map((voice, i) => ({ ...voice, events: copied[i].map(event => ({ ...event, id: uid() })) })) }) } }))
-    }, null)
+  const openScoreMenu = (target: ProjectSelection, position: { x: number; y: number }) => {
+    const inside = selected?.targets.some(item => target.scope === 'measure'
+      ? item.staffId === target.staffId && item.measureId === target.measureId : targetKey(item) === targetKey(target))
+    dispatch({ type: 'entryMode', enabled: false })
+    if (!inside) { contextPick.current = true; dispatch({ type: 'pick', selection: target }) }
+    setScoreMenu({ target, ...position })
   }
+  const menuAction = (perform: () => void) => { perform(); dismissScoreMenu() }
+  const pitchedSelection = selected?.targets.some(target => staffAt(project, target).part.instrument !== 'drums' && locate(staffAt(project, target).staff.score, target).event.kind === 'note') ?? false
+  const deletableSelection = selected?.targets.some(target => locate(staffAt(project, target).staff.score, target).event.kind === 'note') ?? false
   const convert = (pitched: boolean) => {
     if (!selection) return
     change(before => replaceEvent(before, selection, event => ({ id: event.id, start: event.start, duration: event.duration, ...(pitched ? { kind: 'note', pitch: current.part.instrument === 'drums' ? DRUMS[0].pitch : { step: 'C', octave: 4, alter: 0 } as Pitch } : { kind: 'rest' }) })))
@@ -293,7 +303,7 @@ export default function App2() {
     <header className="studio-header"><h1>PocketScore <small>Studio</small></h1><div className="document-tab"><span aria-hidden="true">♩</span><input aria-label="악보 제목" value={project.title} onChange={event => change(before => ({ ...before, title: event.target.value }))}/></div><span className="profile">MS Basic</span></header>
     <nav className="menubar" aria-label="상단 메뉴">
       <Menu name="파일"><button onClick={() => { replace(createProject(false)); setMessage('빈 악보를 만들었습니다. 이전 악보는 실행 취소할 수 있습니다.') }}>새 악보</button><button onClick={() => fileInput.current?.click()}>열기…</button><button onClick={save}>프로젝트 저장</button><button onClick={() => { download(exportMusicXML(project), `${project.title}.musicxml`, 'application/vnd.recordare.musicxml+xml'); setMessage('MusicXML 내보내기 완료. 뮤트·솔로·마스터 설정은 프로젝트 JSON에 저장하세요.') }}>MusicXML 내보내기</button></Menu>
-      <Menu name="편집"><button onClick={() => dispatch({ type: 'undo' })} disabled={!state.past.length}>실행 취소</button><button onClick={() => dispatch({ type: 'redo' })} disabled={!state.future.length}>다시 실행</button><button disabled={legacyClipboardDisabled} onClick={copy}>마디 복사</button><button disabled={legacyClipboardDisabled} onClick={paste}>마디 붙여넣기</button><button disabled={!selection} onClick={() => dispatch({ type: 'deleteSelected' })}>음표 삭제 → 쉼표</button></Menu>
+      <Menu name="편집"><button onClick={() => dispatch({ type: 'undo' })} disabled={!state.past.length}>실행 취소</button><button onClick={() => dispatch({ type: 'redo' })} disabled={!state.future.length}>다시 실행</button><button disabled={!selected || !!state.gesture} onClick={copy}>선택 요소 복사</button><button disabled={!selection || !state.clipboard || !!state.gesture} onClick={paste}>선택 요소 붙여넣기</button><button disabled={legacyClipboardDisabled || !selection} onClick={() => dispatch({ type: 'copyMeasure' })}>마디 복사</button><button disabled={legacyClipboardDisabled || !selection || !state.clipboard} onClick={pasteMeasure}>마디 붙여넣기</button><button disabled={!selection} onClick={() => dispatch({ type: 'deleteSelected' })}>음표 삭제 → 쉼표</button></Menu>
       <Menu name="보기"><button onClick={() => openLeft(!left)}>팔레트 {left ? '접기' : '열기'}</button><button onClick={() => openRight(!right)}>속성 {right ? '접기' : '열기'}</button><button onClick={() => setMixer(value => !value)}>믹서 {mixer ? '접기' : '열기'}</button><button onClick={() => { remember(); setContinuous(value => !value) }}>{continuous ? '페이지 보기' : '연속 보기'}</button></Menu>
       <Menu name="추가"><button onClick={addInstrument}>선택 악기 추가</button><button onClick={() => change(before => addStaff(before, current.part.id))}>오선지 추가</button><button onClick={() => change(before => addVoice(before, current.staff.id))}>성부 추가</button><button onClick={() => change(addMeasure)}>마디 추가</button><button disabled={groupSelected} onClick={() => chord()}>화음 구성음 추가</button></Menu>
       <Menu name="형식"><button onClick={() => { setLeftTab('palette'); openLeft(true) }}>조표·박자표 설정</button><button onClick={() => openRight(true)}>오선지·음자리표 설정</button></Menu>
@@ -323,6 +333,8 @@ export default function App2() {
       chordAllowed={event?.kind === 'note' || !!entry.last} accidentalAllowed={!groupSelected && (input || event?.kind === 'note')} busy={!!state.gesture}
       undo={!!state.past.length} redo={!!state.future.length} left={left} right={right} mode={inputMode} length={chooseDuration} dot={chooseDot} rest={chooseRest}
       accidental={alter => { if (input) dispatch({ type: 'entrySettings', settings: { accidental: entry.accidental === alter ? null : alter } }); else action({ type: 'accidental', alter }); focusScore() }}
+      canCopy={!!selected?.targets.length} canPaste={!!state.clipboard && !!selection} copy={copy} paste={paste}
+      actions={event => { if (selection) { const rect = event.currentTarget.getBoundingClientRect(); openScoreMenu(selection, { x: rect.left, y: rect.bottom }) } }}
       selectVoice={chooseVoice} history={type => dispatch({ type })} palette={() => openLeft(!left)} properties={() => openRight(!right)}/>
     <div className="studio-workspace" data-left={left} data-right={right}>
       <aside className="palette" aria-label="팔레트와 악기" hidden={!left}>
@@ -350,7 +362,7 @@ export default function App2() {
       </aside>
       <section ref={desk} className="score-desk" aria-label="악보 작업 공간" tabIndex={-1}>
         <div className="score-page" data-view={continuous ? 'continuous' : 'page'}><h2>{project.title}</h2><p className="score-subtitle">{project.parts.map(part => part.name).join(' · ')} · ♩ = {project.tempos[0].bpm}</p>
-          <EnsembleView project={project} selection={selection} selected={selected} entry={entry} dispatch={dispatch} zoom={zoom} sensitivity={sensitivity} fingerEdit={fingerEdit} continuous={continuous} inputVoice={voice} playingMeasure={playingMeasure} playingProgress={playingProgress} onLayout={restore}/>
+          <EnsembleView project={project} selection={selection} selected={selected} entry={entry} dispatch={dispatch} zoom={zoom} sensitivity={sensitivity} fingerEdit={fingerEdit} continuous={continuous} inputVoice={voice} playingMeasure={playingMeasure} playingProgress={playingProgress} onLayout={restore} contextMenu={openScoreMenu}/>
         </div>
       </section>
       <aside className="properties" aria-label="속성 패널" hidden={!right}><div className="dock-heading"><h2>속성</h2><button aria-label="속성 패널 닫기" title="패널 닫기" onClick={() => openRight(false)}>×</button></div><div className="dock-content"><p aria-label="선택 상태">{groupSelected ? `${selected!.targets.length}개 선택 · ` : ''}{event ? `${measureIndex + 1}마디 · ${event.kind === 'note' ? `${pitchName(eventPitches(event)[selection?.pitchIndex ?? 0])} ${durationName(event.duration)}음표` : eventName(event)}` : '음표 또는 쉼표를 선택하세요.'}</p>
@@ -380,6 +392,24 @@ export default function App2() {
       <details className="status-details"><summary aria-label="상태 메시지 자세히" title="상태 메시지 자세히">ⓘ</summary><div>{state.notice || message}</div></details>
       <div className="view-tools"><span aria-label="선택 개수" aria-live="polite">{selected ? `${selected.targets.length}개 선택` : '선택 없음'}</span><label>보기<select aria-label="악보 보기" value={continuous ? 'continuous' : 'page'} onChange={event => { remember(); setContinuous(event.target.value === 'continuous') }}><option value="page">페이지</option><option value="continuous">연속</option></select></label><label>배율<select aria-label="악보 배율" value={zoom} onChange={event => { remember(); dispatch({ type: 'cancel' }); setZoom(Number(event.target.value)) }}>{[0.75, 1, 1.25, 1.5].map(value => <option key={value} value={value}>{value * 100}%</option>)}</select></label><label><input type="checkbox" checked={fingerEdit} onChange={event => { dispatch({ type: 'cancel' }); setFingerEdit(event.target.checked) }}/> 손가락 편집</label></div>
     </footer><p id="editing-help" className="visually-hidden">음표 입력을 켜고 길이를 고른 뒤 악보를 누르세요. 화음 도구를 켜고 다른 높이를 누르면 음을 쌓을 수 있습니다. 선택 도구로 돌아가면 음표를 편집할 수 있습니다.</p>
-    {help && <dialog className="help-dialog" aria-label="Alpha 도움말" ref={element => { if (element && !element.open) element.showModal() }} onCancel={() => setHelp(false)}><div><button autoFocus onClick={() => setHelp(false)}>닫기</button><h2>PocketScore 사용 방법</h2><p>음표 입력 버튼을 켜고 음표 길이 기호를 고른 뒤 오선지를 누르세요. 옅은 미리보기가 실제 입력 위치를 보여줍니다. 음표를 하나 입력한 다음 화음 버튼을 켜고 다른 높이를 누르면 같은 박자에 음을 쌓습니다. 쉼표·점·임시표와 1~4성부도 도구 모음에서 선택합니다. 선택 버튼으로 돌아가 음표를 고르면 속성에서 길이와 음높이를 수정할 수 있습니다. 실행 취소·다시 실행과 재생도 화면 버튼으로 사용할 수 있습니다. 지원 길이는 16분~온음표와 점8분·점4분·점2분이며 자동 붙임줄은 아직 지원하지 않습니다.</p><p>악기·오선이 같은 마디·박자 위치에 정렬되는 총보입니다. 선택 모드의 Shift+클릭은 시간·성부 범위를, Ctrl+클릭은 구성음을 개별 선택합니다. 겹친 동음의 단일 선택은 입력 성부로 구분할 수 있습니다. 그룹에서는 음높이만 편집하며 길이는 변경할 수 없습니다.</p><p>MuseScore Studio 4.7.5의 UI·모듈 구조를 참고한 React/VexFlow 편집기입니다. MuseScore C++ 엔진·Qt UI를 실행하지 않습니다. MS Basic SF3를 실제 SoundFont 합성기로 재생합니다. 첫 재생 시 51.3 MB가 필요합니다.</p><details><summary>키보드 보조 조작</summary><p>N 입력 전환 · 3~7 길이 · A–G 음표 · Shift+A–G 화음 · 0 쉼표 · Esc 종료 · Space 재생 · Ctrl/Cmd+Z 취소 · Ctrl+Y 또는 Ctrl/Cmd+Shift+Z 다시 실행. 선택 모드에서는 Shift+클릭으로 범위를, Ctrl/Cmd+클릭으로 개별 음을 고릅니다.</p></details><p>현재: 다중 악기·성부·화음·템포·JSON·제한된 MusicXML. 다음: 연음표·붙임줄·이음줄·강약·스타카토/레가토·기보 반복, 사용자 SF2/SF3, Muse Sounds 공식 연동, 자동 복구·오프라인. 이 기능이 있는 MusicXML은 변환하지 않고 거부합니다.</p><p>Muse Sounds는 포함되지 않습니다. 실제 Galaxy Tab/S펜과 MuseScore GUI 검증은 별도 필요합니다.</p><p><a href={`${import.meta.env.BASE_URL}audio/MSBasic-LICENSE.md`} target="_blank" rel="noreferrer">MS Basic MIT 라이선스</a> · SpessaSynth 4.3.14 / core 4.3.22 / stb-vorbis 0.0.6: Apache-2.0 · VexFlow: MIT</p></div></dialog>}
+    {scoreMenu && <ScoreContextMenu x={scoreMenu.x} y={scoreMenu.y} dismiss={dismissScoreMenu}>
+      <div className="context-heading"><strong>{groupSelected ? `${selected!.targets.length}개 선택` : event?.kind === 'note' ? `${pitchName(eventPitches(event)[selection?.pitchIndex ?? 0])} ${durationName(event.duration)}음표` : event ? eventName(event) : '악보 작업'}</strong><button aria-label="악보 작업 닫기" onClick={() => dismissScoreMenu()}>×</button></div>
+      <button role="menuitem" disabled={!selected?.targets.length} onClick={() => menuAction(copy)}>복사</button>
+      <button role="menuitem" disabled={!state.clipboard} onClick={() => menuAction(() => dispatch({ type: 'paste', target: scoreMenu.target }))}>붙여넣기</button>
+      <button role="menuitem" disabled={!deletableSelection} onClick={() => menuAction(() => dispatch({ type: 'deleteSelected' }))}>선택 음표 삭제</button>
+      <div role="separator"/>
+      <button role="menuitem" disabled={!pitchedSelection} onClick={() => menuAction(() => action({ type: 'pitch', amount: 1, chromatic: true }))}>반음 올리기</button>
+      <button role="menuitem" disabled={!pitchedSelection} onClick={() => menuAction(() => action({ type: 'pitch', amount: -1, chromatic: true }))}>반음 내리기</button>
+      <div className="context-durations" role="group" aria-label="선택 길이 변경">{[1, 2, 4, 8, 16].map(denominator => {
+        const duration = DURATIONS.find(item => item.n === 1 && item.d === denominator)!
+        return <button role="menuitem" key={denominator} disabled={groupSelected || !event} aria-label={`${durationName(duration)}음표로 변경`} onClick={() => menuAction(() => chooseDuration(duration))}>{durationName(duration)}</button>
+      })}</div>
+      <div className="context-accidentals" role="group" aria-label="선택 임시표">{([['♭', -1], ['♮', 0], ['♯', 1]] as const).map(([symbol, alter]) => <button key={alter} role="menuitem" aria-label={`선택 음에 ${symbol}`} disabled={groupSelected || event?.kind !== 'note' || current.part.instrument === 'drums'} onClick={() => menuAction(() => action({ type: 'accidental', alter }))}>{symbol}</button>)}</div>
+      {scoreMenu.target.scope !== 'measure' && menuEvent?.kind === 'note' && eventPitches(menuEvent).length > 1 && <button role="menuitem" onClick={() => menuAction(() => { dispatch({ type: 'pick', selection: scoreMenu.target }); dispatch({ type: 'pick', selection: scoreMenu.target, extend: true }) })}>화음 전체 선택</button>}
+      <div role="separator"/>
+      <button role="menuitem" onClick={() => menuAction(() => change(addMeasure))}>끝에 마디 추가</button>
+      <button role="menuitem" onClick={() => menuAction(() => openRight(true))}>선택 속성 열기</button>
+    </ScoreContextMenu>}
+    {help && <dialog className="help-dialog" aria-label="Alpha 도움말" ref={element => { if (element && !element.open) element.showModal() }} onCancel={() => setHelp(false)}><div><button autoFocus onClick={() => setHelp(false)}>닫기</button><h2>PocketScore 사용 방법</h2><p>음표 입력 버튼을 켜고 음표 길이 기호를 고른 뒤 오선지를 누르세요. 옅은 미리보기가 실제 입력 위치를 보여줍니다. 음표를 하나 입력한 다음 화음 버튼을 켜고 다른 높이를 누르면 같은 박자에 음을 쌓습니다. 쉼표·점·임시표와 1~4성부도 도구 모음에서 선택합니다. 선택 버튼으로 돌아가 음표를 고르면 속성에서 길이와 음높이를 수정할 수 있습니다. 실행 취소·다시 실행과 재생도 화면 버튼으로 사용할 수 있습니다. 지원 길이는 16분~온음표와 점8분·점4분·점2분이며 자동 붙임줄은 아직 지원하지 않습니다.</p><p>악기·오선이 같은 마디·박자 위치에 정렬되는 총보입니다. 선택 모드의 Shift+클릭은 시간·성부 범위를, Ctrl+클릭은 구성음을 개별 선택합니다. 겹친 동음의 단일 선택은 입력 성부로 구분할 수 있습니다. 그룹에서는 음높이만 편집하며 길이는 변경할 수 없습니다. 선택 복사·붙여넣기는 상단 버튼이나 Ctrl/Cmd+C·V로 사용합니다. 오른쪽 클릭 또는 선택 작업 버튼으로 같은 도구를 엽니다. 여러 성부는 기존 아래 성부에 순서대로 붙여넣고, 부족한 성부는 건너뜁니다. 기존 구간은 덮어쓰고 필요한 뒤 마디만 추가하며 한 번의 실행 취소로 복원합니다.</p><p>MuseScore Studio 4.7.5의 UI·모듈 구조를 참고한 React/VexFlow 편집기입니다. MuseScore C++ 엔진·Qt UI를 실행하지 않습니다. MS Basic SF3를 실제 SoundFont 합성기로 재생합니다. 첫 재생 시 51.3 MB가 필요합니다.</p><details><summary>키보드 보조 조작</summary><p>N 입력 전환 · 3~7 길이 · A–G 음표 · Shift+A–G 화음 · 0 쉼표 · Esc 종료 · Space 재생 · Ctrl/Cmd+Z 취소 · Ctrl+Y 또는 Ctrl/Cmd+Shift+Z 다시 실행. 선택 모드에서는 Shift+클릭으로 범위를, Ctrl/Cmd+클릭으로 개별 음을 고릅니다.</p></details><p>현재: 다중 악기·성부·화음·템포·JSON·제한된 MusicXML. 다음: 연음표·붙임줄·이음줄·강약·스타카토/레가토·기보 반복, 사용자 SF2/SF3, Muse Sounds 공식 연동, 자동 복구·오프라인. 이 기능이 있는 MusicXML은 변환하지 않고 거부합니다.</p><p>Muse Sounds는 포함되지 않습니다. 실제 Galaxy Tab/S펜과 MuseScore GUI 검증은 별도 필요합니다.</p><p><a href={`${import.meta.env.BASE_URL}audio/MSBasic-LICENSE.md`} target="_blank" rel="noreferrer">MS Basic MIT 라이선스</a> · SpessaSynth 4.3.14 / core 4.3.22 / stb-vorbis 0.0.6: Apache-2.0 · VexFlow: MIT</p></div></dialog>}
   </main>
 }
