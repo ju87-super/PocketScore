@@ -26,7 +26,7 @@ test('required CI preserves check, all four deterministic groups, reports and fa
   const ci = await workflow('ci')
   assert.equal(ci.name, 'Validate')
   assert.ok(ci.on.pull_request !== undefined)
-  assert.deepEqual(ci.on.push.branches, ['main'], 'PR validation must not be duplicated by feature-branch push runs')
+  assert.deepEqual(ci.on.push.branches, ['main', 'beta/2.1'], 'Only stable and beta release branches run push validation; feature branches validate through PRs')
   assert.equal(ci.jobs.check.name, 'check')
   assert.equal(ci.jobs.check.if, 'always()')
   assert.deepEqual(ci.jobs.check.needs, ['quality', 'unit', 'browser', 'audio'])
@@ -84,7 +84,8 @@ const validRun = { name: 'Validate', event: 'push', conclusion: 'success', head_
 for (const [name, update, enabled, allowed] of [
   ['validated main', {}, 'true', true], ['disabled CD', {}, 'false', false],
   ['failed CI', { conclusion: 'failure' }, 'true', false], ['PR CI', { event: 'pull_request' }, 'true', false],
-  ['feature branch', { head_branch: 'ci/pipeline' }, 'true', false], ['fork', { head_repository: { full_name: 'fork/PocketScore' } }, 'true', false],
+  ['feature branch', { head_branch: 'ci/pipeline' }, 'true', false],
+  ['beta branch cannot deploy stable Pages', { head_branch: 'beta/2.1' }, 'true', false], ['fork', { head_repository: { full_name: 'fork/PocketScore' } }, 'true', false],
   ['invalid SHA', { head_sha: 'main; echo invalid' }, 'true', false],
 ]) test(`actual CD eligibility script: ${name}`, async t => {
   const cd = await workflow('deploy-pages')
@@ -142,4 +143,17 @@ test('MSCZ fixture inspector verifies its notes, not an engine execution claim',
   const result = spawnSync('python3', ['tools/musescore-web/inspect-score.py', 'tests/fixtures/musescore/ci-score.mscz'], { encoding: 'utf8' })
   assert.equal(result.status, 0, result.stderr)
   assert.deepEqual(JSON.parse(result.stdout), [[{ start: '0', duration: '1/4', pitches: [60] }, { start: '1/4', duration: '3/4', pitches: [] }]])
+})
+
+test('beta preview is read-only, branch-isolated and cannot publish stable Pages', async () => {
+  const preview = await workflow('beta-preview')
+  assert.deepEqual(preview.on.push.branches, ['beta/2.1'])
+  assert.deepEqual(preview.on.pull_request.branches, ['beta/2.1'])
+  assert.deepEqual(preview.permissions, { contents: 'read' })
+  assert.ok(preview.jobs.preview.steps.some(step => step.run?.includes('tools/ci/pages-build.mjs dist')))
+  assert.ok(preview.jobs.preview.steps.some(step => step.run?.includes('tests/deployment/beta-local.config.ts')))
+  assert.ok(preview.jobs.preview.steps.some(step => step.env?.POCKETSCORE_BASE_PATH === '/PocketScore/beta/'))
+  assert.ok(preview.jobs.preview.steps.some(step => step.uses?.startsWith('actions/upload-artifact@')))
+  assert.ok(!preview.jobs.preview.steps.some(step => /(deploy-pages|gh-pages|wrangler|cloudflare)/i.test(step.uses ?? '')))
+  assert.equal(preview.jobs.preview.environment, undefined)
 })

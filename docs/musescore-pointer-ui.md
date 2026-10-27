@@ -1,5 +1,7 @@
 # PocketScore — MuseScore식 화면 도구와 포인터 입력
 
+후속: [MuseScore식 스크롤·도크 편집 화면](musescore-workspace.md)은 긴 악보에서도 도구에 접근할 수 있도록 편집 창과 스크롤을 분리한다.
+
 2026-10-26 사용자 피드백: 복잡한 단축키 대신 MuseScore의 실제 소스를 참고해 화면 구성과 조작을 웹에 가깝게 옮긴다. 기존 그룹 선택·길이 변경 금지·반음 이동·히스토리는 유지한다.
 
 최신 main `47e58201deb04dc2d688fca93edbebda9c363586`과 열려 있는 PR #7을 확인했다. 입력 구현 `bfa7e56`을 바탕으로 같은 `feat/musescore-note-entry` 브랜치를 보완해 새 PR과의 충돌을 피한다.

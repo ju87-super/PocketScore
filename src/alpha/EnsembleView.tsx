@@ -21,6 +21,7 @@ type Props = {
   project: Project; selection: ProjectSelection | null; selected: ScoreSelection | null
   dispatch: Dispatch<ProjectAction>; zoom: number; sensitivity: number; fingerEdit: boolean; continuous: boolean
   entry: NoteEntry; inputVoice: number; playingMeasure: number | null; playingProgress: number
+  onLayout?: (minimumWidth: number) => void
 }
 type Drag = { pointerId: number; pointerType: string; x: number; y: number; target: ProjectSelection; axis: Axis | null; token: string; group: boolean }
 type Pending = { pointerId: number; pointerType: string; x: number; y: number; position: EntryPosition; pitch: Pitch; chordTarget?: ProjectSelection }
@@ -47,6 +48,7 @@ export default function EnsembleView(props: Props) {
     paintEnsembleSelection(scene.current, p.selected, p.selection)
     paintEnsemblePlayback(scene.current, p.playingMeasure, p.playingProgress)
     paintEnsembleEntry(scene.current, p.project, p.entry)
+    p.onLayout?.(scene.current.minimumWidth * p.zoom)
   }, [])
   useLayoutEffect(draw, [draw, project, zoom, continuous])
   useLayoutEffect(() => { if (scene.current) paintEnsembleSelection(scene.current, selected, selection) }, [selected, selection, project])
@@ -62,10 +64,12 @@ export default function EnsembleView(props: Props) {
   }, [cancel, draw])
   useEffect(() => {
     const element = notation.current!
+    const desk = root.current?.closest('.score-desk')
     const blur = () => cancel()
     const hidden = () => { if (document.hidden) cancel() }
     window.addEventListener('blur', blur); document.addEventListener('visibilitychange', hidden)
-    return () => { window.removeEventListener('blur', blur); document.removeEventListener('visibilitychange', hidden); cancel(); disposeEnsemble(element) }
+    desk?.addEventListener('scroll', blur, { passive: true })
+    return () => { window.removeEventListener('blur', blur); document.removeEventListener('visibilitychange', hidden); desk?.removeEventListener('scroll', blur); cancel(); disposeEnsemble(element) }
   }, [cancel])
 
   function point(event: PointerEvent<HTMLElement>) {

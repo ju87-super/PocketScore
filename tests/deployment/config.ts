@@ -2,9 +2,9 @@ import type { PlaywrightTestConfig } from '@playwright/test'
 import { resolve } from 'node:path'
 import { githubReporter } from '../reporters'
 export function deploymentSettings(target: string | undefined, suite = 'deployment'): PlaywrightTestConfig {
-  if (!target) throw new Error('Set POCKETSCORE_BASE_URL to the deployed /PocketScore/ URL.')
+  if (!target) throw new Error('Set POCKETSCORE_BASE_URL to an allowed /PocketScore/ URL.')
   const url = new URL(target)
-  if (url.pathname !== '/PocketScore/' || url.search || url.hash || url.username || url.password || !['http:', 'https:'].includes(url.protocol)) throw new Error('Deployment URL must end with /PocketScore/ and have no credentials/query/hash.')
+  if (!['/PocketScore/', '/PocketScore/beta/', '/'].includes(url.pathname) || url.search || url.hash || url.username || url.password || !['http:', 'https:'].includes(url.protocol)) throw new Error('Deployment URL must be /, /PocketScore/, or /PocketScore/beta/ and have no credentials/query/hash.')
   if (!/^[a-f0-9]{40}$/.test(process.env.POCKETSCORE_EXPECTED_SHA ?? '')) throw new Error('Set POCKETSCORE_EXPECTED_SHA to the validated commit.')
   return { testDir: '.', workers: 1, retries: 0, forbidOnly: !!process.env.CI,
     outputDir: `../../test-results/${suite}`,
