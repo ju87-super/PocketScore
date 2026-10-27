@@ -5,7 +5,7 @@ export const suites = {
   quality: [
     ['bash', 'tools/ci/check-workflows.sh'],
     [process.execPath, 'tools/ci/inventory.mjs'],
-    [process.execPath, '--test', 'tools/ci/contracts.test.mjs', 'tools/musescore-web/probe.test.mjs', 'tools/musescore-web/build-report.test.mjs', 'tools/musescore-web/isolate-commonjs.test.mjs', 'tools/ci/pages-build.test.mjs'],
+    [process.execPath, '--test', 'tools/ci/contracts.test.mjs', 'tools/musescore-web/probe.test.mjs', 'tools/musescore-web/build-report.test.mjs', 'tools/musescore-web/isolate-commonjs.test.mjs', 'tools/ci/pages-build.test.mjs', 'tools/musesampler-research/inspect.test.mjs'],
     ['npm', 'run', 'typecheck'], ['npm', 'run', 'lint'], ['npm', 'run', 'build'],
     ['git', 'diff', '--exit-code', '--', 'package.json', 'package-lock.json'],
   ],
