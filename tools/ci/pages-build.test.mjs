@@ -46,3 +46,13 @@ test('beta manifest cannot claim stable URLs, and arbitrary base is rejected', a
     await assert.rejects(preparePages(dir, sha, false, '/other/'), /Unsupported Pages build base/)
   } finally { await rm(dir, { recursive: true, force: true }) }
 })
+
+test('independent beta hostname can serve from the domain root without stable Pages assets', async () => {
+  const dir = await fixture('/')
+  try {
+    const manifest = await preparePages(dir, sha, false, '/')
+    assert.equal(manifest.base, '/')
+    assert.ok(manifest.assets.every(asset => asset.path.startsWith('/assets/')))
+    assert.equal(JSON.parse(await readFile(join(dir, 'build-info.json'), 'utf8')).base, '/')
+  } finally { await rm(dir, { recursive: true, force: true }) }
+})
