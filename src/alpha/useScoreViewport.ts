@@ -9,6 +9,9 @@ export function useScoreViewport() {
   const remember = useCallback(() => {
     const element = desk.current
     if (!element) return
+    // A restored scroll event must not replace the musical anchor merely because
+    // an earlier bar now shares its row after content-aware line breaking.
+    if (anchor.current?.top === element.scrollTop && anchor.current.left === element.scrollLeft) return
     const top = element.getBoundingClientRect().top
     const bars = [...element.querySelectorAll<SVGElement>('[data-entry-measure]')]
     const bar = bars.find(item => item.getBoundingClientRect().bottom > top + 16)
@@ -26,7 +29,8 @@ export function useScoreViewport() {
       ? element.scrollTop + bar.getBoundingClientRect().top - element.getBoundingClientRect().top - before.offset
       : before.top
     element.scrollLeft = before.left
-    remember()
+    if (bar) anchor.current = { ...before, offset: bar.getBoundingClientRect().top - element.getBoundingClientRect().top, top: element.scrollTop, left: element.scrollLeft }
+    else { anchor.current = null; remember() }
   }, [remember])
   const reveal = useCallback((target: Element | null) => {
     const element = desk.current

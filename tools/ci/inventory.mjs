@@ -2,7 +2,7 @@ import { glob, mkdir, writeFile } from 'node:fs/promises'
 
 const groups = { music: [], input: [], playback: [], musicxml: [] }
 for await (const file of glob('src/**/*.test.{ts,tsx}')) {
-  const group = file.startsWith('src/music/') || file.startsWith('src/project/') ? 'music'
+  const group = file.startsWith('src/music/') || file.startsWith('src/project/') || file.startsWith('src/notation/') ? 'music'
     : file.startsWith('src/editor/') || file === 'src/App.test.tsx' ? 'input'
     : file.startsWith('src/playback/') ? 'playback' : file.startsWith('src/files/') ? 'musicxml' : null
   if (!group) throw new Error(`Unassigned test file: ${file}. Add it to a required CI suite.`)

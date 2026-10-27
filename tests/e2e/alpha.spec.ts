@@ -39,7 +39,8 @@ test.afterEach(() => expect(errors).toEqual([]))
 
 test('Alpha shows four instruments and keeps keyboard, rest/bar traversal and focus-safe controls', async ({ page }) => {
   await expect(page.locator('.staff-card')).toHaveCount(4)
-  await expect(page.locator('svg[data-score-system]')).toHaveCount(2)
+  // The new layout packs measured bars instead of fixing two bars per system.
+  await expect(page.locator('[data-stave-measure]')).toHaveCount(16)
   await page.getByRole('button', { name: '속성', exact: true }).click()
   await page.locator('[data-event-id=m1-e1]').click()
   await page.keyboard.press('ArrowUp')
@@ -204,7 +205,7 @@ test('Alpha reflows signatures on portrait/zoom and traverses to another instrum
   await expect(page.locator('.score-surface')).toBeFocused()
   await page.setViewportSize({ width: 768, height: 1024 })
   await page.getByLabel('악보 배율').selectOption('1.25')
-  await expect(page.locator(`[data-staff-id="${project.parts[0].staves[0].id}"][data-rendered-measure] [data-system-start=true]`)).toHaveCount(primaryScore(project).measures.length)
+  await expect(page.locator(`[data-staff-id="${project.parts[0].staves[0].id}"][data-rendered-measure] [data-system-start=true]`)).toHaveCount(await page.locator('svg[data-score-system]').count())
   await expect(page.locator('.staff-card').first().locator('.vf-timesignature')).toHaveCount(1)
   await page.getByLabel('악보 배율').selectOption('0.75')
   await expect.poll(async () => (await page.locator('.event-target').first().boundingBox())!.width).toBeGreaterThanOrEqual(43.9)
