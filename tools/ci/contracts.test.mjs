@@ -154,6 +154,6 @@ test('beta preview is read-only, branch-isolated and cannot publish stable Pages
   assert.ok(preview.jobs.preview.steps.some(step => step.run?.includes('tests/deployment/beta-local.config.ts')))
   assert.ok(preview.jobs.preview.steps.some(step => step.env?.POCKETSCORE_BASE_PATH === '/PocketScore/beta/'))
   assert.ok(preview.jobs.preview.steps.some(step => step.uses?.startsWith('actions/upload-artifact@')))
-  assert.ok(!preview.jobs.preview.steps.some(step => /actions\\/deploy-pages|gh-pages|wrangler|cloudflare/i.test(step.uses ?? '')))
+  assert.ok(!preview.jobs.preview.steps.some(step => /(deploy-pages|gh-pages|wrangler|cloudflare)/i.test(step.uses ?? '')))
   assert.equal(preview.jobs.preview.environment, undefined)
 })
