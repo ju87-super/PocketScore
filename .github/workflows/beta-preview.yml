@@ -1,0 +1,60 @@
+name: Beta Preview Artifact
+
+on:
+  push:
+    branches: ['beta/2.1']
+  pull_request:
+    branches: ['beta/2.1']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: beta-preview-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    name: Beta build and browser smoke
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/beta/2.1'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-node
+      - name: Build isolated /PocketScore/beta/ production asset
+        env:
+          POCKETSCORE_BASE_PATH: /PocketScore/beta/
+        run: npm run build
+      - name: Pin beta preview manifest to the built commit
+        env:
+          POCKETSCORE_BASE_PATH: /PocketScore/beta/
+          EXPECTED_SHA: ${{ github.sha }}
+        run: node tools/ci/pages-build.mjs dist
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Validate beta production build in Chromium
+        env:
+          POCKETSCORE_EXPECTED_SHA: ${{ github.sha }}
+        run: npx playwright test --config tests/deployment/beta-local.config.ts
+      - name: Upload isolated beta static site (NOT a Pages deployment)
+        uses: actions/upload-artifact@v6
+        with:
+          name: beta-preview-site-${{ github.sha }}
+          path: dist/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload beta test reports and screenshots
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: beta-preview-tests-${{ github.run_attempt }}
+          path: |
+            reports/
+            test-results/
+          if-no-files-found: warn
+          retention-days: 14
