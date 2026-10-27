@@ -9,7 +9,7 @@ export const suites = {
     ['npm', 'run', 'typecheck'], ['npm', 'run', 'lint'], ['npm', 'run', 'build'],
     ['git', 'diff', '--exit-code', '--', 'package.json', 'package-lock.json'],
   ],
-  music: [unit('music', 'src/music', 'src/project')],
+  music: [unit('music', 'src/music', 'src/project', 'src/notation')],
   input: [unit('input', 'src/editor', 'src/App.test.tsx')],
   playback: [unit('playback', 'src/playback')],
   musicxml: [unit('musicxml', 'src/files')],

@@ -25,6 +25,18 @@ type Props = {
 }
 type Drag = { pointerId: number; pointerType: string; x: number; y: number; target: ProjectSelection; axis: Axis | null; token: string; group: boolean }
 type Pending = { pointerId: number; pointerType: string; x: number; y: number; position: EntryPosition; pitch: Pitch; chordTarget?: ProjectSelection }
+function viewportWidth(root: HTMLElement, zoom: number) {
+  const desk = root.closest<HTMLElement>('.score-desk'), page = root.closest<HTMLElement>('.score-page')
+  if (!desk || !page) return (root.clientWidth || 800) / zoom
+  const horizontal = (element: Element) => {
+    const style = getComputedStyle(element)
+    return parseFloat(style.paddingLeft) + parseFloat(style.paddingRight)
+  }
+  // Dense bars may widen the paper. Line breaks still use the visible viewport,
+  // so a single dense bar cannot force every sparse system onto a wider line.
+  const maximum = parseFloat(getComputedStyle(page).maxWidth) || Infinity
+  return Math.max(180, Math.min(desk.clientWidth - horizontal(desk), maximum) - horizontal(page) - 2) / zoom
+}
 export default function EnsembleView(props: Props) {
   const { project, selection, selected, entry, dispatch, zoom, sensitivity, fingerEdit, continuous, playingMeasure, playingProgress } = props
   const root = useRef<HTMLElement>(null), notation = useRef<HTMLDivElement>(null)
@@ -43,7 +55,7 @@ export default function EnsembleView(props: Props) {
   }, [dispatch])
   const draw = useCallback(() => {
     const p = latest.current
-    width.current = (root.current!.clientWidth || 800) / p.zoom
+    width.current = viewportWidth(root.current!, p.zoom)
     scene.current = renderEnsemble(notation.current!, p.project, width.current, p.zoom, p.continuous)
     paintEnsembleSelection(scene.current, p.selected, p.selection)
     paintEnsemblePlayback(scene.current, p.playingMeasure, p.playingProgress)
@@ -56,10 +68,12 @@ export default function EnsembleView(props: Props) {
   useLayoutEffect(() => { if (scene.current) { paintNoteGhost(scene.current, null); paintEnsembleEntry(scene.current, project, entry) } }, [entry, project, zoom, continuous])
   useLayoutEffect(() => {
     const observer = new ResizeObserver(() => {
-      if ((root.current!.clientWidth || 800) / latest.current.zoom === width.current) return
+      if (viewportWidth(root.current!, latest.current.zoom) === width.current) return
       cancel(); draw()
     })
     observer.observe(root.current!)
+    const desk = root.current!.closest('.score-desk')
+    if (desk) observer.observe(desk)
     return () => observer.disconnect()
   }, [cancel, draw])
   useEffect(() => {

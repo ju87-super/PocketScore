@@ -1,4 +1,4 @@
-import { Accidental, BarlineType, Dot, Formatter, Renderer, Stave, StaveNote, Voice } from 'vexflow/bravura'
+import { Accidental, BarlineType, Beam, Dot, Formatter, Fraction, Renderer, Stave, StaveNote, Voice } from 'vexflow/bravura'
 import { durationName, eventName, eventPitches } from '../music/score'
 import type { Measure } from '../music/score'
 import { measureAccidentals } from '../music/accidentals'
@@ -14,6 +14,8 @@ import { equal } from '../music/rational'
 import { measureDuration } from '../music/settings'
 import type { Rational } from '../music/rational'
 import { rhythmSymbol, VOICE_COLORS } from './symbols'
+import { beamGroups, layoutSystems } from './engraving'
+import type { MeasureMetrics } from './engraving'
 
 export type EnsembleHit = { target: ProjectSelection; svg: SVGSVGElement; x: number; y: number; hit: SVGRectElement; glyph?: SVGElement }
 export type EnsembleBar = { target: ProjectSelection; svg: SVGSVGElement; group: SVGGElement; background: SVGRectElement; x: number; y: number; width: number; height: number; bottom: number; index: number }
@@ -21,7 +23,8 @@ export type EnsembleScene = { hits: EnsembleHit[]; bars: EnsembleBar[]; columns:
 export type NoteGhost = { svg: SVGSVGElement; x: number; y: number; bottom: number; duration: Rational; rest: boolean; accidental: -1 | 0 | 1 | null; voice: number; label: string; valid: boolean }
 type StaffRow = { part: Part; staff: Staff; y: number }
 type CachedBar = { models: readonly Measure[]; groups: SVGGElement[]; hits: EnsembleHit[]; bars: EnsembleBar[] }
-type Cache = { layout: string; scene: EnsembleScene; renderers: Renderer[]; bars: CachedBar[] }
+type MeasuredBar = { models: readonly Measure[]; metrics: MeasureMetrics }
+type Cache = { layout: string; scene: EnsembleScene; renderers: Renderer[]; bars: CachedBar[]; metricsKey: string; measured: MeasuredBar[] }
 const cache = new WeakMap<HTMLDivElement, Cache>()
 const ghosts = new WeakMap<EnsembleScene, { group: SVGGElement; key: string }>()
 const svgElement = <K extends keyof SVGElementTagNameMap>(name: K) => document.createElementNS('http://www.w3.org/2000/svg', name)
@@ -46,74 +49,102 @@ function staveNotes(row: StaffRow, measure: Measure, stave: Stave) {
     const notes = model.events.map(event => {
       const dotted = event.duration.n === 3
       const denominator = event.duration.d / (dotted ? 2 : 1)
-      const duration = ({ 1: 'w', 2: 'h', 4: 'q', 8: '8', 16: '16' } as Record<number, string>)[denominator]
+      const fullRest = model.events.length === 1 && event.kind === 'rest' && equal(event.duration, measureDuration(row.staff.score.timeSignature))
+      const duration = fullRest ? 'w' : ({ 1: 'w', 2: 'h', 4: 'q', 8: '8', 16: '16' } as Record<number, string>)[denominator]
       const keys = eventPitches(event).map(p => row.staff.clef === 'percussion' ? ({ 36: 'f/4', 38: 'c/5', 42: 'g/5' }[midi(p)] ?? 'b/4') : `${p.step.toLowerCase()}${p.alter === 1 ? '#' : p.alter === -1 ? 'b' : ''}/${p.octave}`)
-      const note = new StaveNote({ clef: row.staff.clef, keys: keys.length ? keys : [row.staff.clef === 'bass' ? 'd/3' : 'b/4'], duration, dots: dotted ? 1 : 0, type: event.kind === 'rest' ? 'r' : 'n', autoStem: true, stemDirection: measure.voices.length > 1 ? voiceIndex % 2 === 0 ? 1 : -1 : undefined }).setStave(stave)
-      if (dotted) Dot.buildAndAttach([note], { all: true })
+      const note = new StaveNote({ clef: row.staff.clef, keys: keys.length ? keys : [row.staff.clef === 'bass' ? 'd/3' : 'b/4'], duration, durationOverride: fullRest ? new Fraction(event.duration.n, event.duration.d) : undefined, dots: dotted && !fullRest ? 1 : 0, type: event.kind === 'rest' ? 'r' : 'n', autoStem: measure.voices.length === 1, stemDirection: measure.voices.length > 1 ? voiceIndex % 2 === 0 ? 1 : -1 : undefined }).setStave(stave)
+      if (dotted && !fullRest) Dot.buildAndAttach([note], { all: true })
+      if (fullRest) note.setCenterAlignment(true)
       if (row.staff.clef !== 'percussion') keys.forEach((_, index) => {
         const alter = accidentals.get(index ? `${event.id}:${index}` : event.id)
         if (alter !== undefined) note.addModifier(new Accidental(alter === 1 ? '#' : alter === -1 ? 'b' : 'n'), index)
       })
       return note
     })
-    return { model, notes, voice: new Voice({ numBeats: meter.beats, beatValue: meter.beatValue }).addTickables(notes).setStave(stave) }
+    const beams = beamGroups(model.events, row.staff.score.timeSignature).map(indices => ({ indices, beam: new Beam(indices.map(index => notes[index]), measure.voices.length === 1) }))
+    return { model, notes, beams, voice: new Voice({ numBeats: meter.beats, beatValue: meter.beatValue }).addTickables(notes).setStave(stave) }
   })
+}
+
+function stavesFor(rows: StaffRow[], index: number, systemStart: boolean, x: number, width: number) {
+  const staves = rows.map(row => {
+    const stave = new Stave(x, row.y, width)
+    if (systemStart) {
+      stave.addClef(row.staff.clef)
+      if (row.staff.clef !== 'percussion') stave.addKeySignature(KEY_NAMES[row.staff.score.keySignature + 7])
+    }
+    if (index === 0) stave.addTimeSignature(row.staff.score.timeSignature)
+    if (index === row.staff.score.measures.length - 1) stave.setEndBarType(BarlineType.END)
+    return stave
+  })
+  const start = Math.max(...staves.map(stave => stave.getNoteStartX()))
+  staves.forEach(stave => stave.setNoteStartX(start))
+  return staves
+}
+function measureMetrics(rows: StaffRow[], index: number): MeasureMetrics {
+  const staves = stavesFor(rows, index, true, 0, 2000)
+  const rendered = rows.map((row, i) => staveNotes(row, row.staff.score.measures[index], staves[i]))
+  const formatter = new Formatter()
+  rendered.forEach(voices => formatter.joinVoices(voices.map(item => item.voice)))
+  const minimum = formatter.preCalculateMinTotalWidth(rendered.flatMap(voices => voices.map(item => item.voice)))
+  const onsets = new Set(rows.flatMap(row => row.staff.score.measures[index].voices.flatMap(voice => voice.events.map(event => `${event.start.n}/${event.start.d}`))))
+  return { body: Math.max(110, minimum * 1.12 + 18, onsets.size * 28), opening: staves[0].getNoteStartX(),
+    continuation: stavesFor(rows, index, false, 0, 2000)[0].getNoteStartX() }
 }
 
 export function renderEnsemble(container: HTMLDivElement, project: Project, availableWidth: number, zoom: number, continuous: boolean): EnsembleScene {
   const { rows, height } = rowsOf(project)
   const score = rows[0].staff.score, count = score.measures.length
-  const density = Math.max(...rows.flatMap(row => row.staff.score.measures.flatMap(bar => bar.voices.map(voice => voice.events.length))))
-  const minimum = Math.max(310, density * 46 + 120 + Math.abs(score.keySignature) * 12)
-  const label = 110
-  const columns = continuous ? count : availableWidth - label >= minimum * 2 ? 2 : 1
-  const width = Math.max(availableWidth, label + minimum * columns)
-  const measureWidth = (width - label - 8) / columns
-  const layout = JSON.stringify([width, height, columns, count, zoom, score.keySignature, score.timeSignature, rows.map(row => [row.part.id, row.part.name, row.staff.id, row.staff.name, row.staff.clef, row.y])])
   let current = cache.get(container)
+  const metricsKey = JSON.stringify([score.keySignature, score.timeSignature, count, rows.map(row => [row.staff.id, row.staff.clef])])
+  const measured = Array.from({ length: count }, (_, index): MeasuredBar => {
+    const models = rows.map(row => row.staff.score.measures[index])
+    const previous = current?.metricsKey === metricsKey ? current.measured[index] : undefined
+    return previous && models.every((model, i) => model === previous.models[i]) ? previous : { models, metrics: measureMetrics(rows, index) }
+  })
+  const systems = layoutSystems(measured.map(bar => bar.metrics), availableWidth, continuous)
+  const width = Math.max(...systems.map(system => system.width))
+  const columns = Math.max(...systems.map(system => system.measures.length))
+  const layout = JSON.stringify([systems, height, zoom, score.keySignature, score.timeSignature, rows.map(row => [row.part.id, row.part.name, row.staff.id, row.staff.name, row.staff.clef, row.y])])
   if (!current || current.layout !== layout) {
     disposeEnsemble(container)
-    const renderers = Array.from({ length: Math.ceil(count / columns) }, (_, i) => {
+    const renderers = systems.map((system, i) => {
       const section = document.createElement('div')
       section.className = 'ensemble-system'
       container.append(section)
       const renderer = new Renderer(section, Renderer.Backends.SVG)
-      renderer.resize(width, height)
+      renderer.resize(system.width, height)
       const svg = section.querySelector('svg')!
       svg.dataset.scoreSystem = String(i)
       svg.setAttribute('role', 'group'); svg.setAttribute('aria-label', `총보 ${i + 1}번째 시스템`)
       return renderer
     })
-    current = { layout, renderers, bars: [], scene: { hits: [], bars: [], columns, width, height, minimumWidth: label + minimum * (continuous ? count : 1) } }
+    current = { layout, renderers, bars: [], metricsKey, measured, scene: { hits: [], bars: [], columns, width, height, minimumWidth: width } }
     cache.set(container, current)
   }
   const result = current
-  result.scene.minimumWidth = label + minimum * (continuous ? count : 1)
-  for (let index = 0; index < count; index++) {
-    const models = rows.map(row => row.staff.score.measures[index])
+  result.measured = measured
+  for (const [systemIndex, system] of systems.entries()) for (const [column, placement] of system.measures.entries()) {
+    const index = placement.index, x = placement.x, measureWidth = placement.width, systemStart = column === 0
+    const models = measured[index].models
     const previous = result.bars[index]
     if (previous && previous.models.every((bar, i) => bar === models[i])) continue
-    const renderer = result.renderers[Math.floor(index / columns)], context = renderer.getContext()
-    const svg = container.querySelectorAll<SVGSVGElement>('svg')[Math.floor(index / columns)]
-    const x = label + index % columns * measureWidth
-    const staves = rows.map(row => {
-      const stave = new Stave(x, row.y, measureWidth)
-      if (index % columns === 0) {
-        stave.addClef(row.staff.clef)
-        if (row.staff.clef !== 'percussion') stave.addKeySignature(KEY_NAMES[score.keySignature + 7])
-      }
-      if (index === 0) stave.addTimeSignature(score.timeSignature)
-      if (index === count - 1) stave.setEndBarType(BarlineType.END)
-      return stave.setContext(context)
-    })
-    // One formatter per measure across all voices/staves: shared musical onsets
-    // and barlines remain aligned even when one instrument contains only rests.
-    const start = Math.max(...staves.map(stave => stave.getNoteStartX()))
-    staves.forEach(stave => stave.setNoteStartX(start))
+    const renderer = result.renderers[systemIndex], context = renderer.getContext()
+    const svg = container.querySelectorAll<SVGSVGElement>('svg')[systemIndex]
+    const staves = stavesFor(rows, index, systemStart, x, measureWidth)
+    staves.forEach(stave => stave.setContext(context))
+    const start = staves[0].getNoteStartX()
     const rendered = rows.map((row, i) => staveNotes(row, models[i], staves[i]))
     const formatter = new Formatter()
     rendered.forEach(voices => formatter.joinVoices(voices.map(voice => voice.voice)))
     formatter.formatToStave(rendered.flatMap(voices => voices.map(voice => voice.voice)), staves[0])
+    rendered.forEach(voices => voices.forEach(({ beams }) => beams.forEach(({ beam }) => {
+      // Limit visual rise to one staff space, including long/wide beams. A
+      // slope-only limit can push beams outside a system on large pitch leaps.
+      const notes = beam.getNotes(), span = Math.abs(notes.at(-1)!.getStemX() - notes[0].getStemX())
+      const slope = Math.min(0.25, 10 / Math.max(1, span))
+      beam.renderOptions.maxSlope = slope; beam.renderOptions.minSlope = -slope
+    })))
     const entry: CachedBar = { models, groups: [], hits: [], bars: [] }
     rows.forEach((row, rowIndex) => {
       const stave = staves[rowIndex], measure = models[rowIndex]
@@ -126,13 +157,13 @@ export function renderEnsemble(container: HTMLDivElement, project: Project, avai
       background.setAttribute('width', String(measureWidth)); background.setAttribute('height', '122')
       background.setAttribute('class', 'measure-selection')
       group.append(background)
-      if (index % columns === 0) {
+      if (systemStart) {
         context.setFont('system-ui', 11)
         context.fillText(row.staff.name === row.part.name ? row.part.name : row.staff.name, 3, row.y + 65)
       }
       if (rowIndex === 0) { context.setFont('system-ui', 11); context.fillText(String(index + 1), x + 5, row.y + 6) }
       stave.draw()
-      stave.getSVGElement()?.setAttribute('data-system-start', String(index % columns === 0))
+      stave.getSVGElement()?.setAttribute('data-system-start', String(systemStart))
       stave.getSVGElement()?.setAttribute('data-stave-measure', measure.id)
       const target: ProjectSelection = { partId: row.part.id, staffId: row.staff.id, measureId: measure.id, voiceId: measure.voices[0].id, eventId: measure.voices[0].events[0].id, scope: 'measure' }
       const bar = { target, svg, group, background, x: start, y: row.y + 5, width: stave.getNoteEndX() - start, height: 122, bottom: stave.getYForLine(4), index }
@@ -148,12 +179,13 @@ export function renderEnsemble(container: HTMLDivElement, project: Project, avai
         notes.forEach((note, eventIndex) => {
           const event = model.events[eventIndex]
           note.getSVGElement()?.setAttribute('data-note-event', event.id)
+          note.getSVGElement()?.setAttribute('data-stem-direction', String(note.getStemDirection()))
           const tones = Math.max(1, eventPitches(event).length)
           for (let pitchIndex = 0; pitchIndex < tones; pitchIndex++) {
             const head = note.noteHeads[pitchIndex]
             const cx = head.getAbsoluteX() + head.getWidth() / 2, cy = note.getYs()[pitchIndex]
             const hit = svgElement('rect'), size = 44 / zoom
-            hit.setAttribute('x', String(Math.max(0, Math.min(width - size, cx - size / 2))))
+            hit.setAttribute('x', String(Math.max(0, Math.min(system.width - size, cx - size / 2))))
             hit.setAttribute('y', String(Math.max(0, Math.min(height - size, cy - size / 2))))
             hit.setAttribute('width', String(size)); hit.setAttribute('height', String(size))
             hit.setAttribute('class', 'event-target'); hit.setAttribute('role', 'button'); hit.setAttribute('tabindex', '-1'); hit.setAttribute('aria-pressed', 'false')
@@ -165,6 +197,15 @@ export function renderEnsemble(container: HTMLDivElement, project: Project, avai
           }
         })
       })
+      rendered[rowIndex].forEach(({ model, beams }) => beams.forEach(({ beam, indices }) => {
+        beam.setContext(context).draw()
+        const element = beam.getSVGElement()
+        if (element) {
+          element.dataset.beamVoice = model.id
+          element.dataset.beamStem = String(beam.getStemDirection())
+          element.dataset.beamEvents = JSON.stringify(indices.map(i => model.events[i].id))
+        }
+      }))
       context.closeGroup(); entry.groups.push(group)
     })
     // Split nearby targets at the midpoints between noteheads. The controller

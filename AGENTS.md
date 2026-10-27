@@ -8,6 +8,7 @@ Do not claim real tablet tests or MuseScore GUI verification unless performed.
 - React + TypeScript + Vite. Use VexFlow for notation layout.
 - Canonical score data must be independent of the SVG renderer, playback, UI, storage, and MusicXML.
 - Use exact rational note/rest durations and start times, with measure and voice invariants.
+- Studio engraving derives meter-aware beams and measured per-bar/system spacing from immutable rhythm events (`src/notation/engraving.ts`). Keep derived beam/layout state out of score files/history; preserve cross-staff onset alignment, signature placement and hit targets through responsive reflow. Run notation unit tests in the Music Engine CI suite.
 - Support MusicXML 4.0 carefully; never silently discard unsupported musical content.
 - Planned browser audio: FluidSynth WebAssembly + MuseScore MS Basic SF3 when licensing and distribution are verified. Muse Sounds is not a SoundFont; do not embed it.
 - Keep the initial development serverless and free; plan GitHub Pages project base as /PocketScore/.

@@ -7,7 +7,7 @@ import { addMeasure } from '../../src/project/structure'
 import { serializeProject } from '../../src/files/project'
 
 let score = createProject(false)
-for (let i = 1; i < 24; i++) score = addMeasure(score)
+for (let i = primaryScore(score).measures.length; i < 64; i++) score = addMeasure(score)
 const measure = primaryScore(score).measures[16]
 const bar = (page: Page) => page.locator(`[data-entry-measure="${measure.id}"]`).first()
 const desk = (page: Page) => page.getByRole('region', { name: '악보 작업 공간', exact: true })
@@ -56,9 +56,11 @@ async function anchor(page: Page) {
 }
 async function expectAnchor(page: Page, before: Awaited<ReturnType<typeof anchor>>) {
   await expect.poll(async () => {
-    const current = await anchor(page)
-    return { id: current.id, staff: current.staff, delta: Math.abs(current.offset - before.offset) < 2 ? 0 : Math.round(current.offset - before.offset) }
-  }).toEqual({ id: before.id, staff: before.staff, delta: 0 })
+    return desk(page).evaluate((element, before) => {
+      const bar = [...element.querySelectorAll<SVGElement>('[data-entry-measure]')].find(item => item.dataset.entryMeasure === before.id && item.dataset.staffId === before.staff)!
+      return Math.abs(bar.getBoundingClientRect().top - element.getBoundingClientRect().top - before.offset)
+    }, before)
+  }).toBeLessThan(2)
 }
 
 test('wheel scrolls only the score; tools edit the seventeenth bar and undo without returning to the top', async ({ page }) => {
