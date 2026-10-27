@@ -4,7 +4,7 @@ import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
 export async function preparePages(directory, sha, requireAudio = true, base = '/PocketScore/') {
-  if (!['/PocketScore/', '/PocketScore/beta/'].includes(base)) throw new Error('Unsupported Pages build base')
+  if (!['/PocketScore/', '/PocketScore/beta/', '/'].includes(base)) throw new Error('Unsupported Pages build base')
   if (!/^[a-f0-9]{40}$/.test(sha)) throw new Error('Invalid source SHA')
   const root = resolve(directory)
   const html = await readFile(resolve(root, 'index.html'), 'utf8')
