@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import type { MouseEvent } from 'react'
 import type { NoteEntry } from '../project/noteEntry'
 import type { Rational } from '../music/rational'
 import { equal, fraction } from '../music/rational'
@@ -13,6 +14,7 @@ type Props = {
   length: (duration: Rational) => void; dot: () => void; rest: () => void
   accidental: (alter: -1 | 0 | 1) => void; selectVoice: (voice: number) => void
   history: (action: 'undo' | 'redo') => void; palette: () => void; properties: () => void
+  canCopy: boolean; canPaste: boolean; copy: () => void; paste: () => void; actions: (event: MouseEvent<HTMLButtonElement>) => void
 }
 function Tool({ label, children, pressed, disabled, onClick, className = '' }: {
   label: string; children: ReactNode; pressed?: boolean; disabled?: boolean; onClick: () => void; className?: string
@@ -67,6 +69,11 @@ export default function NoteInputToolbar(p: Props) {
     <div className="tool-section history-tools">
       <Tool label="실행 취소" disabled={!p.undo || p.busy} onClick={() => p.history('undo')}><span aria-hidden="true">↶</span></Tool>
       <Tool label="다시 실행" disabled={!p.redo || p.busy} onClick={() => p.history('redo')}><span aria-hidden="true">↷</span></Tool>
+    </div>
+    <div className="tool-section clipboard-tools" role="group" aria-label="복사와 붙여넣기">
+      <Tool label="선택 복사" disabled={p.busy || !p.canCopy} onClick={p.copy}><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M8 3h12v16H8Zm2 2v12h8V5ZM4 7h2v14h10v2H4Z"/></svg><span>복사</span></Tool>
+      <Tool label="선택 위치에 붙여넣기" disabled={p.busy || !p.canPaste} onClick={p.paste}><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M8 2h8v3h4v17H4V5h4Zm2 2v2h4V4ZM6 7v13h12V7h-2v1H8V7Z"/></svg><span>붙여넣기</span></Tool>
+      <button type="button" className="notation-tool" aria-label="선택 작업" title="선택 작업" aria-haspopup="menu" disabled={p.busy || !p.canCopy} onClick={p.actions}><span aria-hidden="true">⋯</span><span>작업</span></button>
     </div>
     <div className="tool-section inspector-toggle"><Tool label="속성" pressed={p.right} onClick={p.properties}><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 4h18v2H3Zm0 7h18v2H3Zm0 7h18v2H3Z"/><path d="M7 2h3v6H7Zm8 7h3v6h-3ZM6 16h3v6H6Z"/></svg><span>속성</span></Tool></div>
     </div>

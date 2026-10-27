@@ -22,9 +22,11 @@ type Props = {
   dispatch: Dispatch<ProjectAction>; zoom: number; sensitivity: number; fingerEdit: boolean; continuous: boolean
   entry: NoteEntry; inputVoice: number; playingMeasure: number | null; playingProgress: number
   onLayout?: (minimumWidth: number) => void
+  contextMenu: (target: ProjectSelection, position: { x: number; y: number }) => void
 }
 type Drag = { pointerId: number; pointerType: string; x: number; y: number; target: ProjectSelection; axis: Axis | null; token: string; group: boolean }
 type Pending = { pointerId: number; pointerType: string; x: number; y: number; position: EntryPosition; pitch: Pitch; chordTarget?: ProjectSelection }
+type ScorePointer = Pick<PointerEvent<HTMLElement>, 'target' | 'clientX' | 'clientY' | 'ctrlKey' | 'metaKey'>
 function viewportWidth(root: HTMLElement, zoom: number) {
   const desk = root.closest<HTMLElement>('.score-desk'), page = root.closest<HTMLElement>('.score-page')
   if (!desk || !page) return (root.clientWidth || 800) / zoom
@@ -86,13 +88,13 @@ export default function EnsembleView(props: Props) {
     return () => { window.removeEventListener('blur', blur); document.removeEventListener('visibilitychange', hidden); desk?.removeEventListener('scroll', blur); cancel(); disposeEnsemble(element) }
   }, [cancel])
 
-  function point(event: PointerEvent<HTMLElement>) {
+  function point(event: ScorePointer) {
     const svg = (event.target as Element).closest('svg') as SVGSVGElement | null
     if (!svg?.getScreenCTM()) return null
     const position = new DOMPoint(event.clientX, event.clientY).matrixTransform(svg.getScreenCTM()!.inverse())
     return { svg, x: position.x, y: position.y }
   }
-  function hitAt(event: PointerEvent<HTMLElement>): EnsembleHit | null {
+  function hitAt(event: ScorePointer): EnsembleHit | null {
     const p = point(event)
     if (!p) return null
     const candidates = scene.current!.hits.filter(item => item.svg === p.svg).map(item => ({ item, distance: Math.hypot(item.x - p.x, item.y - p.y) }))
@@ -140,7 +142,7 @@ export default function EnsembleView(props: Props) {
       valid: (entry.rest || midi(pitch) >= 36 && midi(pitch) <= 96) && compare(add(position.start, duration), capacity) <= 0 }
     return { position: { ...position, voiceId: target.voiceId }, pitch, chordTarget, preview }
   }
-  function barAt(event: PointerEvent<HTMLElement>, hit = hitAt(event)) {
+  function barAt(event: ScorePointer, hit = hitAt(event)) {
     const element = (event.target as Element).closest<SVGElement>('[data-entry-measure]')
     return scene.current!.bars.find(item => hit ? item.target.measureId === hit.target.measureId && item.target.staffId === hit.target.staffId
       : item.target.measureId === element?.dataset.entryMeasure && item.target.staffId === element?.dataset.staffId)
@@ -233,7 +235,12 @@ export default function EnsembleView(props: Props) {
   return <section ref={root} className="score-surface ensemble-surface" tabIndex={0} aria-label="악보 편집 영역" aria-describedby="editing-help" data-editing="true" data-input-mode={entry.enabled} data-finger-edit={fingerEdit} data-selected-count={selected?.targets.length ?? 0}
     onKeyDown={keyDown} onPointerDown={start} onPointerMove={preview} onPointerUp={finish} onPointerCancel={cancel} onLostPointerCapture={cancel} onBlur={() => cancel()}
     onPointerLeave={() => { if (!drag.current && !pending.current && scene.current) paintNoteGhost(scene.current, null) }}
-    onDragStart={event => event.preventDefault()} onContextMenu={event => { if (drag.current) event.preventDefault() }}>
+    onDragStart={event => event.preventDefault()} onContextMenu={event => {
+      const hit = hitAt(event), bar = barAt(event, hit), target = hit?.target ?? bar?.target
+      if (!target) return
+      event.preventDefault(); cancel(); event.currentTarget.focus({ preventScroll: true })
+      props.contextMenu(target, { x: event.clientX, y: event.clientY })
+    }}>
     <div ref={notation} className="notation ensemble-notation" style={{ zoom }}/>
   </section>
 }

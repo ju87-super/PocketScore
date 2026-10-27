@@ -263,3 +263,12 @@
 .studio-status { position: relative; }
 .status-details { position: static; }
 .status-details > div { right: 8px; width: min(420px, calc(100vw - 16px)); }
+
+/* Context actions share the same model commands as the toolbar and shortcuts. */
+.score-context-menu { position: fixed; z-index: 30; width: min(292px, calc(100vw - 16px)); max-height: calc(100dvh - 16px); overflow: auto; overscroll-behavior: contain; padding: 4px; background: #fff; border: 1px solid #aeb8c6; border-radius: 6px; box-shadow: 0 6px 24px #17213144; font-size: 13px; }
+.studio .score-context-menu > button { display: block; width: 100%; min-height: 44px; text-align: left; border: 0; background: transparent; border-radius: 3px; }
+.context-heading { display: flex; align-items: center; justify-content: space-between; padding-left: 8px; min-height: 40px; font-size: 12px; }
+.studio .context-heading button { border: 0; background: transparent; font-size: 21px; }
+.score-context-menu > [role=separator] { height: 1px; margin: 4px; background: #d7dce3; }
+.context-durations, .context-accidentals { display: flex; gap: 2px; padding: 4px; }
+.studio .context-durations button, .studio .context-accidentals button { flex: 1; min-width: 44px; padding: 4px 2px; }
