@@ -104,6 +104,40 @@ for (const changed of [false, true]) test(`container Pages freshness check ${cha
   else await pending
 })
 
+for (const changed of [false, true]) test(`actual dependency guard handles foreign ownership and ${changed ? 'rejects a changed' : 'accepts an unchanged'} lockfile`, async t => {
+  const action = parse(await readFile('.github/actions/setup-node/action.yml', 'utf8'))
+  const trust = action.runs.steps.find(step => step.name === 'Trust only the checked-out workspace for Git')
+  const check = action.runs.steps.find(step => step.name === 'Verify unchanged dependency manifests')
+  const folder = await temporary(t)
+  const run = (command, args, env) => spawnSync(command, args, { cwd: folder, encoding: 'utf8', env: { ...process.env, ...env } })
+  assert.equal(run('git', ['init', '-q']).status, 0)
+  await writeFile(join(folder, 'package.json'), '{"name":"fixture"}\n')
+  await writeFile(join(folder, 'package-lock.json'), '{"lockfileVersion":3}\n')
+  assert.equal(run('git', ['add', '.']).status, 0)
+  assert.equal(run('git', ['-c', 'user.name=CI test', '-c', 'user.email=ci@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'fixture']).status, 0)
+  const env = { GIT_CONFIG_GLOBAL: join(folder, 'isolated-git-config'), GIT_CONFIG_NOSYSTEM: '1', GIT_TEST_ASSUME_DIFFERENT_OWNER: '1' }
+  const before = run('git', ['rev-parse', '--show-toplevel'], env)
+  assert.notEqual(before.status, 0)
+  assert.match(before.stderr, /dubious ownership/)
+  const trusted = run('bash', ['-c', trust.run], env)
+  assert.equal(trusted.status, 0, trusted.stderr)
+  assert.equal(run('git', ['config', '--global', '--get-all', 'safe.directory'], env).stdout.trim(), folder)
+  if (changed) await writeFile(join(folder, 'package-lock.json'), '{"lockfileVersion":3,"changed":true}\n')
+  const result = run('bash', ['-c', check.run], env)
+  assert.equal(result.status, changed ? 1 : 0, result.stderr)
+})
+
+test('dependency guard rejects a missing Git checkout instead of comparing the two manifests to each other', async t => {
+  const action = parse(await readFile('.github/actions/setup-node/action.yml', 'utf8'))
+  const check = action.runs.steps.find(step => step.name === 'Verify unchanged dependency manifests')
+  const folder = await temporary(t)
+  await writeFile(join(folder, 'package.json'), '{}\n')
+  await writeFile(join(folder, 'package-lock.json'), '{}\n')
+  const result = spawnSync('bash', ['-c', check.run], { cwd: folder, encoding: 'utf8' })
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /not a git repository/)
+})
+
 for (const status of ['success', 'failure', 'cancelled', 'skipped', 'missing']) {
   test(`actual check job script handles ${status} without false success`, async t => {
     const ci = await workflow('ci')

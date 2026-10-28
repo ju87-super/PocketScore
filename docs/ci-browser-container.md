@@ -18,6 +18,7 @@
 - 시작 성공/실패·Node/Playwright/Chromium 버전·경로·시간을 JSON/log/Step Summary로 남긴다. 사전 검사에는 2분 제한을 두고 실패 시 테스트를 진행하지 않는다. 기존 실패 screenshot·trace·Artifacts와 필수 `check`, timeout, 재시도 0, 실패 보존 정책은 유지한다.
 - 공식 이미지에는 GitHub CLI가 포함되지 않으므로 Pages build의 최신 main SHA 확인은 `actions/github-script@v8`의 인증된 REST 호출로 바꾼다. 조회 실패나 SHA 불일치는 계속 실패한다. 배포 직전 host job의 두 번째 SHA 확인도 유지한다.
 - WASM runtime은 Python 3.12를 명시적으로 준비해 MSCZ inspector가 컨테이너의 우연한 Python 설치에 의존하지 않게 한다. Qt/Emscripten 빌드와 WASM 실험의 수동 실행 정책은 그대로다.
+- 공통 Node 준비 단계는 현재 체크아웃 경로만 Git의 safe.directory에 등록한다. 컨테이너 사용자와 호스트 파일 소유자가 달라도 저장소 검증이 동작하게 하며, 모든 경로를 신뢰하는 `*` 설정은 사용하지 않는다. 의존성 검증은 HEAD 존재를 먼저 확인하고 `git diff --exit-code HEAD -- package.json package-lock.json`으로 비교한다.
 
 ## 검사와 유지보수
 
@@ -29,14 +30,16 @@ Playwright 업그레이드 시 package.json/lockfile과 5개 이미지의 버전
 
 | 검증 | 결과 | 시간 |
 |---|---|---|
-| 타입·ESLint·actionlint·production build·잠금 파일 | 성공 | quality 합계 15.0초 |
-| CI/WASM 도구 계약 | 32/32 성공, 새 계약 4개 포함 | quality에 포함 |
+| 타입·ESLint·actionlint·production build·잠금 파일 | 성공 | quality 합계 16.4초 |
+| CI/WASM 도구 계약 | 35/35 성공, 새 계약 7개 포함 | quality에 포함 |
 | 기존 전체 단위 | 262/262 성공 | 2.39초 |
 | 고정 이미지 안 Chromium E2E | 99/99 성공, 실패·생략·재시도 0 | 빌드 포함 132.1초 |
 | 고정 이미지 안 실제 SF3/PCM | 4/4 성공, 실패·생략·재시도 0 | 빌드 포함 28.6초 |
 | 고정 이미지 안 로컬 production artifact smoke | 1/1 성공 | 4.45초 |
 
-컨테이너에서도 Node 24.19.0/npm 11.9.0을 사용했다. 사전 검사에서 Playwright 1.64.1과 Chromium 156.0.8078.4 실행을 확인했다(브라우저 시작 0.173초, 이미지 pull/npm 설치 시간 제외). 컨테이너의 기본 Node 24.22.1/npm 11.19.1을 그대로 쓰지 않았다. CI 계약 중 22개는 같은 컨테이너에서도 추가 실행해 누락 브라우저 실패 기록·SHA 거부·Python MSCZ inspector를 확인했다. 이 22개는 위 32개와 중복이므로 합산하지 않는다.
+컨테이너에서도 Node 24.19.0/npm 11.9.0을 사용했다. 사전 검사에서 Playwright 1.64.1과 Chromium 156.0.8078.4 실행을 확인했다(브라우저 시작 0.173초, 이미지 pull/npm 설치 시간 제외). 컨테이너의 기본 Node 24.22.1/npm 11.19.1을 그대로 쓰지 않았다. CI 계약 중 25개는 같은 컨테이너에서도 추가 실행해 누락 브라우저 실패 기록·SHA 거부·Python MSCZ inspector·Git 소유권/잠금 파일 변경 거부를 확인했다. 이 25개는 위 35개와 중복이므로 합산하지 않는다.
+
+[첫 원격 실행](https://github.com/ju87-super/PocketScore/actions/runs/40609057346)은 이미지 pull과 npm ci 후 기존 Git 의존성 검사에서 실패했다. 컨테이너와 체크아웃 파일의 소유자 차이로 Git의 신뢰 경로가 필요했고, 기존 diff 명령이 저장소 밖 비교로 해석돼 package.json과 package-lock.json을 서로 비교했다. 컨테이너 root에서도 실제 소유권 오류를 재현하고 현재 경로만 등록하는 준비 단계로 해결했다. 소유권 차이, 정상 잠금 파일, 변경된 잠금 파일, Git 저장소 누락을 실제 Git 프로세스로 검증하는 회귀 검사 3개를 추가했다. 실패한 첫 실행을 성공으로 계산하지 않는다.
 
 실제 GitHub 검증은 [브랜치의 Validate 실행 목록](https://github.com/ju87-super/PocketScore/actions/workflows/ci.yml?query=branch%3Aci%2Fprebuilt-playwright)에서 확인한다. 정확한 Actions 실행 링크와 결과는 완료 보고에서 제공한다.
 
