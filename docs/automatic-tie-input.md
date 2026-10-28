@@ -29,6 +29,12 @@ MuseScore Studio 4.7.5의 [Score::setNoteRest](https://github.com/musescore/Muse
 
 `pendingSeek`가 최신 요청 위치를 유지하고 일치하는 `timeChange` 응답 이후에만 엔진 시계를 다시 읽는다. 이전 응답은 최신 요청을 해제하지 않으며, 응답 전 일시정지도 요청 위치를 보존한다. 최신 요청 전에 발생한 응답을 지연해 전달하는 결정적 회귀 테스트와 수정 후 실제 PCM 검증을 함께 추가했다. 테스트를 재시도나 skip으로 숨기지 않았다.
 
+## CI에서 발견한 기존 화면 검사 대기 문제
+
+[최초 GitHub 실행](https://github.com/ju87-super/PocketScore/actions/runs/40645070155)은 단위·오디오·품질 검사가 모두 성공했고 브라우저는 119개 성공/1개 실패였다. 실패는 기존 `engraving.spec.ts`가 390px에서 1280px로 바꾼 직후 옛 시스템 수 8개를 먼저 고정 기대값으로 읽고, ResizeObserver가 완성한 새 레이아웃의 시작 기호 3개와 비교한 경쟁이었다. 새 자동 입력 시나리오는 모두 성공했다.
+
+화면 크기 변경 후 렌더링 프레임을 기다리고, 각 시스템과 시작 기호를 같은 DOM 스냅샷에서 읽어 확인하도록 수정한다. 기존 검사·화면 폭·잉크 범위·박자표·저장 데이터 보존 조건은 유지하며 재시도·skip·임의 대기시간으로 우회하지 않는다. CI 최종 요약의 미구현 목록도 실제 상태에 맞춰 연음표·타악기 붙임줄로 갱신한다. 수정 후 CI와 동일한 digest 고정 Playwright Noble 이미지, Node 24.19.0, Chromium 156, 2 workers에서 이 시나리오를 12회 실행해 모두 통과했다. 보고서는 `reports/automatic-layout`에 보존한다.
+
 ## 검증
 
 로컬 환경: Node 24.19.0 / npm 11.9.0, Chromium 154 (`/usr/bin/chromium`), Playwright 1.64.1.

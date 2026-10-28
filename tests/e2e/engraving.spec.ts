@@ -85,10 +85,15 @@ test('sparse bars share systems while dense chords reserve space; responsive sig
   const wideCount = await page.locator('svg[data-score-system]').count()
   for (const width of [800, 390, 1280]) {
     await page.setViewportSize({ width, height: 1000 })
+    // ResizeObserver redraws during rendering, after setViewportSize resolves.
+    // Allow that rendering turn to finish before inspecting the new systems.
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
     await expect.poll(async () => (await barWidths()).length).toBe(8)
     const systems = page.locator('svg[data-score-system]')
     if (width === 390) await expect.poll(() => systems.count()).toBeGreaterThan(wideCount)
-    await expect(page.locator('[data-system-start=true]')).toHaveCount(await systems.count())
+    // Read each system and its opening in the same DOM snapshot. Capturing a
+    // previous layout's count as a fixed RHS races with the responsive redraw.
+    await expect.poll(() => systems.evaluateAll(elements => elements.length > 0 && elements.every(svg => svg.querySelectorAll('[data-system-start=true]').length === 1))).toBe(true)
     await expect(page.locator('.vf-timesignature')).toHaveCount(1)
     expect(await inkOutsideSVG(page)).toEqual([])
     widths = await barWidths()
