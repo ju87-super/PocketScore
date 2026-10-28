@@ -42,6 +42,8 @@ jobs:
     needs: eligibility
     if: needs.eligibility.outputs.allowed == 'true'
     runs-on: ubuntu-24.04
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:47b510dd9230bf0b9bfc9b20102241e577ea7a99334ab4c3ca19f19770e9b8ea
     timeout-minutes: 15
     permissions:
       contents: read
@@ -53,10 +55,13 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup-node
       - name: Reject superseded CI results
+        uses: actions/github-script@v8
         env:
-          GH_TOKEN: ${{ github.token }}
           EXPECTED_SHA: ${{ needs.eligibility.outputs.sha }}
-        run: test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)" = "$EXPECTED_SHA"
+        with:
+          script: |
+            const { data } = await github.rest.git.getRef({ ...context.repo, ref: 'heads/main' });
+            if (data.object.sha !== process.env.EXPECTED_SHA) throw new Error('Main changed after validation; refusing stale deployment.');
       - uses: actions/configure-pages@v6
         with:
           enablement: false
@@ -65,7 +70,9 @@ jobs:
         env:
           EXPECTED_SHA: ${{ needs.eligibility.outputs.sha }}
         run: node tools/ci/pages-build.mjs dist
-      - run: npx playwright install --with-deps chromium
+      - name: Verify preinstalled Chromium
+        timeout-minutes: 2
+        uses: ./.github/actions/verify-browser
       - name: Smoke the exact production artifact before deployment
         env:
           POCKETSCORE_EXPECTED_SHA: ${{ needs.eligibility.outputs.sha }}
@@ -107,6 +114,8 @@ jobs:
   smoke:
     needs: [eligibility, deploy]
     runs-on: ubuntu-24.04
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:47b510dd9230bf0b9bfc9b20102241e577ea7a99334ab4c3ca19f19770e9b8ea
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
@@ -118,7 +127,9 @@ jobs:
             /*
             !/public/audio/*.sf3
       - uses: ./.github/actions/setup-node
-      - run: npx playwright install --with-deps chromium
+      - name: Verify preinstalled Chromium
+        timeout-minutes: 2
+        uses: ./.github/actions/verify-browser
       - name: Verify the deployed commit, SPA, assets and basic editing
         env:
           POCKETSCORE_BASE_URL: ${{ needs.deploy.outputs.page_url }}

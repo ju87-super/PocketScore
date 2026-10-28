@@ -31,9 +31,12 @@ PR, main Push, 수동 실행에서 동작합니다. 초기 PR API 차단 시 사
 matrix는 `fail-fast: false`로 다른 음악 검사의 결과도 남깁니다.
 `continue-on-error`와 자동 재시도를 사용하지 않습니다. Playwright는 `.only`를 CI에서
 거부하고, 실패 screenshot·trace, HTML/JUnit/JSON을 남깁니다.
-일반 브라우저·음원 job의 Chromium 설치는 별도 5분 제한과
-`reports/setup/playwright-install.log`를 둡니다. 설치 실패는 실패로 유지하고,
-전체 job timeout 전에 Artifacts에 설치 진단을 업로드할 수 있게 합니다.
+브라우저·음원, Pages 사전/배포 후 smoke와 WASM runtime은 같은 공식 Playwright
+Noble 컨테이너를 버전과 manifest digest로 고정합니다. 브라우저·OS 패키지가 이미지에
+포함돼 매번 Ubuntu 미러에서 `apt`/`playwright install --with-deps`를 실행하지 않습니다.
+`verify-browser`는 2분 제한 안에 Chromium을 실제 실행하고 페이지를 열어
+`reports/setup/browser-runtime.json`과 `.log`, Step Summary에 버전·시간·실패 이유를
+남깁니다. 이 사전 검사는 기능·오디오 검사를 대체하지 않습니다.
 
 `.github/actions/setup-node`는 `.nvmrc`와 `packageManager`의 정확한 버전을 검사하고
 필요하면 고정 npm을 설치합니다. setup-node의 npm 다운로드 캐시를 사용하고
@@ -57,7 +60,7 @@ PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium npm run ci:browser
 PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium npm run ci:audio
 ```
 
-GitHub runner는 Playwright의 고정 Chromium을 설치하므로 executable override를 쓰지
+GitHub browser job은 이미지의 고정 Chromium을 사용하므로 executable override를 쓰지
 않습니다. `npm test`와 `npm run test:e2e`도 기존 전체 검증 진입점으로 유지됩니다.
 `tools/ci/inventory.mjs`는 단위 테스트 파일이 필수 그룹에서 누락되면 실패합니다.
 기존 결합 project 테스트도 음악 그룹에 그대로 유지합니다.
@@ -66,6 +69,13 @@ GitHub runner는 Playwright의 고정 Chromium을 설치하므로 executable ove
 Markdown과 JUnit/브라우저 보고서가 생성됩니다. 생성할 때 이전 결과를 지우므로
 오래된 성공 결과로 덮지 않습니다. GitHub Step Summary와 14일 보존 Artifacts에서
 결과를 확인합니다. 실행 중 강제 runner 종료 시에는 로그 업로드 자체가 불가능할 수 있습니다.
+이미지 pull은 checkout 전에 실행되므로 pull 자체가 실패하면 저장소의 진단 스크립트나
+Artifacts 업로드는 실행할 수 없습니다. 그 경우 Actions의 Initialize containers 로그를
+확인합니다. 이미지 다운로드와 npm registry 접속에 대한 네트워크 의존은 남습니다.
+
+Playwright를 올릴 때는 package.json/lockfile, 5개 browser job의 이미지 버전·digest를
+함께 갱신합니다. CI 계약 검사는 서로 다른 이미지, 버전 불일치, digest 누락과 설치
+명령 재도입을 거부합니다. [전환 근거와 검증 보고](ci-browser-container.md)를 참조하세요.
 
 실패 검증은 실제 `check` 스크립트를 success/failure/cancelled/skipped/missing 입력으로
 실행하고, 하위 프로세스가 exit 17인 경우 보고기 역시 17을 반환하는지 검사합니다.

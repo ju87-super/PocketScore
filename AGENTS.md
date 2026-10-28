@@ -38,6 +38,7 @@ Do not claim real tablet tests or MuseScore GUI verification unless performed.
 - Use milestone-sized PRs for 2.0 feature delivery and deterministic tests for all changed editing behavior. Do not treat static architecture or artifacts as a working end-to-end editor.
 
 ## Development quality gates
+- GitHub browser jobs use the same official Playwright Noble image pinned by version and manifest digest. Match all image tags to the exact locked `@playwright/test` version; run `verify-browser` before tests. Do not reintroduce per-run `apt`/`playwright install` into browser jobs. Keep the pinned Node/npm setup, failure artifacts and required check names. Containers do not include GitHub CLI or a guaranteed Python runtime: preserve the Pages freshness guard and WASM inspector prerequisites when changing environments.
 - Work in small scoped changes; add and run deterministic unit tests for each musical edit.
 - Prioritize tests for duration invariants, rest merging/splitting, cursor traversal, semitone notation, gesture orientation, and Undo/Redo.
 - Run available typecheck, lint, test, and production build before PR; report results accurately.

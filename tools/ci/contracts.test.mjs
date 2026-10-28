@@ -46,12 +46,62 @@ test('required CI preserves check, all four deterministic groups, reports and fa
   }
   assert.match(ci.jobs.browser.steps[0].with['sparse-checkout'], /!\/public\/audio\/\*\.sf3/)
   assert.equal(ci.jobs.audio.steps[0].with['sparse-checkout'], undefined)
-  for (const name of ['browser', 'audio']) {
-    const install = ci.jobs[name].steps.find(step => step.run?.includes('npx playwright install'))
-    assert.ok(install['timeout-minutes'] > 0 && install['timeout-minutes'] < ci.jobs[name]['timeout-minutes'])
-    assert.match(install.run, /set -o pipefail/)
-    assert.match(install.run, /tee reports\/setup\/playwright-install\.log/)
+})
+
+test('every browser job uses the same digest-pinned image matching the locked Playwright version, without apt/browser installation', async () => {
+  const manifest = JSON.parse(await readFile('package.json', 'utf8'))
+  const lock = JSON.parse(await readFile('package-lock.json', 'utf8'))
+  const version = manifest.devDependencies['@playwright/test']
+  assert.equal(lock.packages['node_modules/@playwright/test'].version, version)
+  const ci = await workflow('ci'), cd = await workflow('deploy-pages'), wasm = await workflow('musescore-wasm')
+  const jobs = [ci.jobs.browser, ci.jobs.audio, cd.jobs.build, cd.jobs.smoke, wasm.jobs.runtime]
+  const image = jobs[0].container.image
+  assert.ok(image.startsWith(`mcr.microsoft.com/playwright:v${version}-noble@sha256:`))
+  assert.match(image, /@sha256:[a-f0-9]{64}$/)
+  for (const job of jobs) {
+    assert.equal(job.container.image, image)
+    assert.ok(job.steps.some(step => step.uses === './.github/actions/setup-node'))
+    const probe = job.steps.find(step => step.uses === './.github/actions/verify-browser')
+    assert.ok(probe['timeout-minutes'] > 0 && probe['timeout-minutes'] < job['timeout-minutes'])
+    assert.equal(job.env?.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH, undefined)
+    for (const step of job.steps) assert.doesNotMatch(step.run ?? '', /playwright\s+install|apt(?:-get)?\s/)
+    assert.ok(job.steps.some(step => step.uses?.startsWith('actions/upload-artifact@') && step.if === 'always()'))
   }
+  const probe = parse(await readFile('.github/actions/verify-browser/action.yml', 'utf8'))
+  assert.match(probe.runs.steps[0].run, /set -euo pipefail/)
+  assert.match(probe.runs.steps[0].run, /node tools\/ci\/verify-browser\.mjs/)
+  assert.match(probe.runs.steps[0].run, /tee reports\/setup\/browser-runtime\.log/)
+  assert.ok(wasm.jobs.runtime.steps.some(step => step.uses === 'actions/setup-python@v6' && step.with['python-version'] === '3.12'))
+})
+
+test('missing preinstalled Chromium fails before feature tests and records failed startup evidence', async t => {
+  const folder = await temporary(t), summary = join(folder, 'summary.md')
+  const result = spawnSync(process.execPath, [resolve(repo, 'tools/ci/verify-browser.mjs')], {
+    cwd: folder, encoding: 'utf8', timeout: 45000,
+    env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: join(folder, 'missing-browsers'), PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: '', GITHUB_STEP_SUMMARY: summary },
+  })
+  assert.equal(result.status, 1, result.stderr)
+  const report = JSON.parse(await readFile(join(folder, 'reports/setup/browser-runtime.json'), 'utf8'))
+  assert.equal(report.status, 'failed')
+  assert.equal(report.chromiumVersion, undefined)
+  assert.match(report.error, /Executable doesn't exist/)
+  assert.match(await readFile(summary, 'utf8'), /Chromium startup: failed/)
+})
+
+for (const changed of [false, true]) test(`container Pages freshness check ${changed ? 'rejects a stale' : 'accepts the validated'} main SHA without gh CLI`, async () => {
+  const cd = await workflow('deploy-pages')
+  const guard = cd.jobs.build.steps.find(step => step.name === 'Reject superseded CI results')
+  assert.equal(guard.uses, 'actions/github-script@v8')
+  assert.equal(guard.env.EXPECTED_SHA, '${{ needs.eligibility.outputs.sha }}')
+  const execute = new (Object.getPrototypeOf(async () => {}).constructor)('github', 'context', 'process', guard.with.script)
+  const context = { repo: { owner: 'ju87-super', repo: 'PocketScore' } }, expected = 'a'.repeat(40)
+  const github = { rest: { git: { getRef: async input => {
+    assert.deepEqual(input, { ...context.repo, ref: 'heads/main' })
+    return { data: { object: { sha: changed ? 'b'.repeat(40) : expected } } }
+  } } } }
+  const pending = execute(github, context, { env: { EXPECTED_SHA: expected } })
+  if (changed) await assert.rejects(pending, /refusing stale deployment/)
+  else await pending
 })
 
 for (const status of ['success', 'failure', 'cancelled', 'skipped', 'missing']) {

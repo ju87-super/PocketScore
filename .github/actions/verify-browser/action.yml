@@ -1,0 +1,11 @@
+name: Verify preinstalled Chromium
+description: Launch the pinned browser and preserve startup diagnostics without downloading dependencies
+runs:
+  using: composite
+  steps:
+    - name: Launch Chromium and record runtime
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p reports/setup
+        node tools/ci/verify-browser.mjs 2>&1 | tee reports/setup/browser-runtime.log
