@@ -1,21 +1,20 @@
-import { eventPitches, DURATIONS, locate, retime } from '../music/score'
-import type { RhythmEvent } from '../music/score'
+import { eventPitches, DURATIONS, locate } from '../music/score'
 import { add, compare, equal, fraction, subtract, ZERO } from '../music/rational'
 import type { Rational } from '../music/rational'
 import { midi, STEPS } from '../music/pitch'
 import type { Pitch } from '../music/pitch'
 import { keyAlter, measureDuration } from '../music/settings'
-import { allSelections, rests, staffAt, uid, updateStaff } from './model'
+import { allSelections, staffAt, updateStaff, validateProject } from './model'
 import type { Project, ProjectSelection } from './model'
-import { addMeasure } from './structure'
-import { tiedContinuations } from '../music/ties'
+import { barStart, extendForRhythm, overwriteRhythm } from './rhythmEdit'
+import { tiedContinuations, withTies } from '../music/ties'
 
 export type EntryPosition = Readonly<{ partId: string; staffId: string; voiceId: string; measureId: string; start: Rational }>
 export type NoteEntry = Readonly<{
-  enabled: boolean; cursor: EntryPosition | null; last: ProjectSelection | null
+  enabled: boolean; cursor: EntryPosition | null; last: ProjectSelection | null; segments: readonly ProjectSelection[]
   duration: Rational; reference: Pitch; accidental: Pitch['alter'] | null; rest: boolean; chord: boolean
 }>
-export const createNoteEntry = (): NoteEntry => ({ enabled: false, cursor: null, last: null, duration: fraction(1, 4), reference: { step: 'C', octave: 4, alter: 0 }, accidental: null, rest: false, chord: false })
+export const createNoteEntry = (): NoteEntry => ({ enabled: false, cursor: null, last: null, segments: [], duration: fraction(1, 4), reference: { step: 'C', octave: 4, alter: 0 }, accidental: null, rest: false, chord: false })
 export const ENTRY_DURATIONS: Readonly<Record<string, Rational>> = { '1': fraction(1, 64), '2': fraction(1, 32), '3': fraction(1, 16), '4': fraction(1, 8), '5': fraction(1, 4), '6': fraction(1, 2), '7': fraction(1) }
 export function dottedDuration(duration: Rational): Rational {
   const next = duration.n === 3 ? fraction(1, duration.d / 2) : fraction(duration.n * 3, duration.d * 2)
@@ -34,13 +33,22 @@ export function reconcileEntry(project: Project, entry: NoteEntry): NoteEntry {
     if (!bar?.voices.some(voice => voice.id === entry.cursor!.voiceId) || compare(entry.cursor.start, measureDuration(score.timeSignature)) > 0) throw new Error()
     let last: ProjectSelection | null = null
     try { if (entry.last && locate(staffAt(project, entry.last).staff.score, entry.last).event.kind === 'note') last = entry.last } catch { /* The cursor can outlive a replaced note. */ }
-    return { ...entry, last }
-  } catch { return { ...entry, cursor: null, last: null } }
+    const segments = last && entry.segments.every((target, i) => {
+      try {
+        const event = locate(score, target).event, next = entry.segments[i + 1]
+        if (event.kind !== 'note') return false
+        if (!next) return true
+        const pitches = eventPitches(locate(score, next).event).map(midi)
+        return eventPitches(event).every(pitch => pitches.includes(midi(pitch)) && event.tieTo?.includes(midi(pitch)))
+      } catch { return false }
+    }) ? entry.segments : []
+    return { ...entry, last, segments }
+  } catch { return { ...entry, cursor: null, last: null, segments: [] } }
 }
 export function beginEntry(project: Project, entry: NoteEntry, selection: ProjectSelection | null): NoteEntry {
   const target = selection ?? allSelections(project)[0]
   const event = locate(staffAt(project, target).staff.score, target).event
-  return { ...entry, enabled: true, chord: false, cursor: entryPosition(project, target), last: event.kind === 'note' ? target : null,
+  return { ...entry, enabled: true, chord: false, segments: [], cursor: entryPosition(project, target), last: event.kind === 'note' ? target : null,
     reference: eventPitches(event)[target.pitchIndex ?? 0] ?? entry.reference, accidental: null }
 }
 // Accidental state belongs to a written step/octave and resets at a barline.
@@ -65,67 +73,56 @@ export function letterPitch(project: Project, entry: NoteEntry, step: Pitch['ste
   if (!candidates.length) throw new Error('입력할 음이 지원 음역 C2–C7을 벗어납니다.')
   return candidates[0]
 }
-function fragment(event: RhythmEvent, duration: Rational, side: 'before' | 'after'): RhythmEvent[] {
-  if (equal(duration, ZERO)) return []
-  if (event.kind === 'rest') return rests(duration)
-  if (!DURATIONS.some(item => equal(item, duration))) throw new Error('기존 음표를 여러 조각의 붙임줄로 자동 분할해야 합니다. 이 입력은 아직 지원하지 않아 변경을 취소했습니다.')
-  const fragment = { ...event, id: side === 'before' ? event.id : uid(), duration }
-  if (side === 'before') delete fragment.tieTo
-  return [fragment]
-}
 export type EntryResult = { project: Project; entry: NoteEntry; selection: ProjectSelection }
 export function followingPosition(project: Project, cursor: EntryPosition, duration: Rational): EntryPosition {
-  const score = staffAt(project, cursor).staff.score, end = add(cursor.start, duration)
-  const next = score.measures[score.measures.findIndex(bar => bar.id === cursor.measureId) + 1]
-  return equal(end, measureDuration(score.timeSignature)) && next ? { ...cursor, measureId: next.id, start: ZERO } : { ...cursor, start: end }
+  const score = staffAt(project, cursor).staff.score, capacity = measureDuration(score.timeSignature)
+  let index = score.measures.findIndex(bar => bar.id === cursor.measureId), start = add(cursor.start, duration)
+  while (compare(start, capacity) >= 0 && score.measures[index + 1]) { start = subtract(start, capacity); index++ }
+  return { ...cursor, measureId: score.measures[index].id, start }
 }
 export function writeEntry(project: Project, entry: NoteEntry, value: Pitch | null, position = entry.cursor): EntryResult {
   if (!entry.enabled || !position) throw new Error('N으로 음표 입력을 켜고 위치를 선택하세요.')
   if (!DURATIONS.some(item => equal(item, entry.duration))) throw new Error('지원하지 않는 입력 길이입니다.')
-  let cursor = position
-  let score = staffAt(project, cursor).staff.score
-  if (!score.measures.some(bar => bar.id === cursor.measureId)) throw new Error('입력할 마디를 찾을 수 없습니다. 위치를 다시 선택하세요.')
-  const capacity = measureDuration(score.timeSignature)
-  if (equal(cursor.start, capacity)) {
-    const index = score.measures.findIndex(bar => bar.id === cursor.measureId)
-    if (!score.measures[index + 1]) project = addMeasure(project)
-    score = staffAt(project, cursor).staff.score
-    cursor = { ...cursor, measureId: score.measures[index + 1].id, start: ZERO }
-  }
-  const end = add(cursor.start, entry.duration)
-  if (compare(cursor.start, ZERO) < 0 || compare(end, capacity) > 0) throw new Error('입력 길이가 마디선을 넘습니다. 자동 분할 입력은 아직 지원하지 않습니다. 각 마디에 음표를 입력한 뒤 붙임줄로 연결하세요.')
-  const bar = score.measures.find(measure => measure.id === cursor.measureId)
-  const voice = bar?.voices.find(item => item.id === cursor.voiceId)
-  if (!bar || !voice) throw new Error('입력할 마디와 성부를 선택하세요.')
-  const inserted: RhythmEvent = { id: uid(), start: cursor.start, duration: entry.duration, ...(value ? { kind: 'note', pitch: value } : { kind: 'rest' }) }
-  const before: RhythmEvent[] = [], after: RhythmEvent[] = []
-  for (const event of voice.events) {
-    const eventEnd = add(event.start, event.duration)
-    if (compare(eventEnd, cursor.start) <= 0) before.push(event)
-    else if (compare(event.start, end) >= 0) after.push(event)
-    else {
-      if (compare(event.start, cursor.start) < 0) before.push(...fragment(event, subtract(cursor.start, event.start), 'before'))
-      if (compare(eventEnd, end) > 0) after.push(...fragment(event, subtract(eventEnd, end), 'after'))
-    }
-  }
-  project = updateStaff(project, cursor.staffId, staff => ({ ...staff, score: { ...staff.score, measures: staff.score.measures.map(measure => measure.id !== cursor.measureId ? measure : { ...measure,
-    voices: measure.voices.map(item => item.id !== cursor.voiceId ? item : { ...item, events: retime([...before, inserted, ...after]) }),
-  }) } }))
-  const selection: ProjectSelection = { partId: cursor.partId, staffId: cursor.staffId, voiceId: cursor.voiceId, measureId: cursor.measureId, eventId: inserted.id, pitchIndex: 0 }
-  const next = followingPosition(project, cursor, entry.duration)
-  return { project, selection, entry: { ...entry, cursor: next, last: value ? selection : null, reference: value ?? entry.reference, accidental: null } }
+  const { part, staff } = staffAt(project, position), capacity = measureDuration(staff.score.timeSignature)
+  const index = staff.score.measures.findIndex(bar => bar.id === position.measureId)
+  if (index < 0) throw new Error('입력할 마디를 찾을 수 없습니다. 위치를 다시 선택하세요.')
+  if (compare(position.start, ZERO) < 0 || compare(position.start, capacity) > 0) throw new Error('입력 위치가 마디 범위를 벗어납니다.')
+  const start = add(barStart(capacity, index), position.start), end = add(start, entry.duration)
+  project = extendForRhythm(project, end)
+  const score = staffAt(project, position).staff.score
+  const result = overwriteRhythm(score, position.voiceId, start, entry.duration, [{ offset: ZERO, duration: entry.duration, pitches: value ? [value] : [] }], part.instrument === 'drums')
+  project = { ...project, parts: project.parts.map(item => item.id !== part.id ? item : { ...item,
+    staves: item.staves.map(item => item.id === staff.id ? { ...item, score: result.score } : item),
+  }) }
+  const errors = validateProject(project)
+  if (errors.length) throw new Error(errors.join(' '))
+  const segments = result.inserted.map(target => ({ ...target, partId: part.id, staffId: staff.id, pitchIndex: 0 }))
+  const selection = segments[0], next = followingPosition(project, position, entry.duration)
+  return { project, selection, entry: { ...entry, cursor: next, last: value ? selection : null, segments: value ? segments : [], reference: value ?? entry.reference, accidental: null } }
 }
 export function addEntryChord(project: Project, entry: NoteEntry, target: ProjectSelection, value: Pitch): EntryResult {
   const { part, staff } = staffAt(project, target)
   const event = locate(staff.score, target).event
   if (part.instrument === 'drums' || event.kind !== 'note') throw new Error('화음은 일반 악기의 음표를 선택한 뒤 입력하세요.')
-  const pitches = [...eventPitches(event)]
-  if (pitches.some(pitch => midi(pitch) === midi(value))) throw new Error('같은 음높이가 이미 화음에 있습니다.')
-  if (pitches.length >= 8) throw new Error('화음은 8개 구성음까지 지원합니다.')
-  pitches.push(value)
-  const next = updateStaff(project, staff.id, item => ({ ...item, score: { ...item.score, measures: item.score.measures.map(bar => bar.id !== target.measureId ? bar : { ...bar,
-    voices: bar.voices.map(voice => voice.id !== target.voiceId ? voice : { ...voice, events: voice.events.map(item => item.id !== event.id ? item : { ...event, pitch: pitches[0], chord: pitches.slice(1) }) }),
+  const segments = entry.enabled && entry.last?.eventId === target.eventId && entry.segments.length > 1 ? entry.segments : [target]
+  const changed = new Map(segments.map((point, i) => {
+    const item = locate(staff.score, point).event
+    if (item.kind !== 'note') throw new Error('화음에 추가할 음표를 다시 선택하세요.')
+    const pitches = [...eventPitches(item)]
+    if (pitches.some(pitch => midi(pitch) === midi(value))) throw new Error('같은 음높이가 이미 화음에 있습니다.')
+    if (pitches.length >= 8) throw new Error('화음은 8개 구성음까지 지원합니다.')
+    pitches.push(value)
+    return [item.id, withTies({ ...item, pitch: pitches[0], chord: pitches.slice(1) }, [...(item.tieTo ?? []), ...(i < segments.length - 1 ? [midi(value)] : [])])] as const
+  }))
+  const next = updateStaff(project, staff.id, item => ({ ...item, score: { ...item.score, measures: item.score.measures.map(bar => {
+    const voices = bar.voices.map(voice => {
+      const events = voice.events.map(item => changed.get(item.id) ?? item)
+      return events.every((event, i) => event === voice.events[i]) ? voice : { ...voice, events }
+    })
+    return voices.every((voice, i) => voice === bar.voices[i]) ? bar : { ...bar, voices }
   }) } }))
-  return { project: next, selection: { ...target, scope: undefined, pitchIndex: pitches.length - 1 }, entry: { ...entry, last: target, reference: value, accidental: null } }
+  const tail = segments.at(-1)!, tailEvent = locate(staff.score, tail).event
+  const cursor = segments.length > 1 ? followingPosition(project, entryPosition(project, tail), tailEvent.duration) : entry.cursor
+  return { project: next, selection: { ...target, scope: undefined, pitchIndex: eventPitches(event).length }, entry: { ...entry, cursor, last: target, reference: value, accidental: null } }
 }
 export const isNoteLetter = (key: string): key is Pitch['step'] => STEPS.includes(key as Pitch['step'])

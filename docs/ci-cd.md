@@ -85,8 +85,9 @@ Playwright를 올릴 때는 package.json/lockfile, 5개 browser job의 이미지
 기본 붙임줄은 모델·재생·파일 호환의 양성 테스트와 실제 PCM 검사로 검증합니다.
 고정 `rhythm-ties.musicxml`은 화음 일부·마디 경계·짧은 길이의 보존을 검사하며,
 기존 `tied.musicxml`은 끝 표시가 없는 잘못된 붙임줄의 명시적 거부를 유지합니다.
-연음표와 자동 붙임줄 분할 입력은 아직 미구현이며 `it.skip`/dummy 성공으로 대체하지
-않습니다. [리듬·붙임줄 변경 보고](score-rhythm-ties.md)를 참조하세요.
+자동 붙임줄 입력은 7개 박자의 모든 64분 격자 시작·지원 길이 조합, 화음·덮어쓰기·다중 성부 붙여넣기, 실제 Chromium/PCM과 파일 왕복을 검사합니다.
+연음표·타악기 붙임줄은 아직 미구현이며 `it.skip`/dummy 성공으로 대체하지 않습니다.
+[기본 리듬](score-rhythm-ties.md)과 [자동 붙임줄 입력](automatic-tie-input.md) 보고를 참조하세요.
 
 ## CD: Deploy GitHub Pages
 

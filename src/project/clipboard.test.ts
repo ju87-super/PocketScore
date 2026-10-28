@@ -134,13 +134,19 @@ describe('atomic multi-voice overwrite paste', () => {
     expect(notes(next.project, 0, 0, 1).map(item => item.duration)).toEqual([fraction(1, 4), fraction(3, 4)])
     expect(validateProject(next.project)).toEqual([])
   })
-  it('rejects bar-crossing notes or unsupported boundary fragments without changing inputs', () => {
+  it('splits bar-crossing notes and boundary fragments without changing inputs', () => {
     const project = clipboardProject(), before = structuredClone(project)
     const long = { span: fraction(1, 2), rows: [{ events: [{ offset: ZERO, duration: fraction(1, 2), pitches: [{ step: 'C' as const, octave: 4, alter: 0 as const }] }] }] }
-    expect(() => pasteScoreSelection(project, long, target(0, 0, 3, 3))).toThrow('마디선')
+    const crossing = pasteScoreSelection(project, long, target(0, 0, 3, 3))
+    expect(crossing.addedMeasures).toBe(1)
+    expect(notes(crossing.project, 0, 0, 3).at(-1)).toMatchObject({ duration: fraction(1, 4), tieTo: [60] })
+    expect(notes(crossing.project, 0, 0, 4)[0]).toMatchObject({ duration: fraction(1, 4), pitch: { step: 'C' } })
     const whole = { ...project, parts: project.parts.map((part, p) => p ? part : { ...part, staves: part.staves.map(staff => ({ ...staff, score: { ...staff.score, measures: staff.score.measures.map((bar, m) => m ? bar : { ...bar, voices: bar.voices.map((voice, v) => v ? voice : { ...voice, events: [{ ...voice.events[0], duration: fraction(1) }] }) }) } })) }) }
     const short = { span: fraction(1, 16), rows: [{ events: [{ offset: ZERO, duration: fraction(1, 16), pitches: [{ step: 'C' as const, octave: 5, alter: 0 as const }] }] }] }
-    expect(() => pasteScoreSelection(whole, short, target())).toThrow('붙임줄')
+    const split = pasteScoreSelection(whole, short, target())
+    expect(notes(split.project).map(event => event.duration)).toEqual([fraction(1, 16), fraction(3, 4), fraction(3, 16)])
+    expect(notes(split.project)[1]).toMatchObject({ tieTo: [60, 64, 67] })
+    expect(validateProject(split.project)).toEqual([])
     expect(project).toEqual(before)
   })
   it('rejects project size overflow and stale or missing destinations atomically', () => {

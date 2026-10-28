@@ -77,14 +77,15 @@ describe('MuseScore-style step-time entry', () => {
     expect(s.state.present.project.parts[1].staves[0].score).toBe(other)
     expect(validateProject(s.state.present.project)).toEqual([])
   })
-  it('rejects barline crossing without changing data, selection, cursor or history', () => {
+  it('splits barline input and rejects a stale destination without changing its completed edit', () => {
     const project = createProject(false), s = session(project)
     s.send({ type: 'entryMode', enabled: true }); s.send({ type: 'entrySettings', settings: { duration: fraction(1, 2) } })
-    const before = s.state.present
     s.send({ type: 'entryWrite', position: { ...s.state.present.entry.cursor!, start: fraction(3, 4) }, letter: 'C' })
-    expect(s.state.present).toBe(before)
-    expect(s.state.past).toHaveLength(0)
-    expect(s.state.notice).toContain('마디선')
+    expect(notes(s.state.present.project).at(-1)).toMatchObject({ duration: fraction(1, 4), tieTo: [60] })
+    expect(primaryScore(s.state.present.project).measures[1].voices[0].events[0]).toMatchObject({ duration: fraction(1, 4), pitch: { step: 'C' } })
+    expect(s.state.present.entry.cursor?.start).toEqual(fraction(1, 4))
+    expect(s.state.past).toHaveLength(1)
+    const before = s.state.present
     s.send({ type: 'entryWrite', position: { ...s.state.present.entry.cursor!, measureId: 'deleted-bar', start: fraction(1) }, pitch: { step: 'C', octave: 4, alter: 0 } })
     expect(s.state.present).toBe(before)
     expect(s.state.notice).toContain('마디를 찾을 수 없습니다')
@@ -105,12 +106,16 @@ describe('MuseScore-style step-time entry', () => {
     expect(result.entry.cursor?.start).toEqual(fraction(1, 4))
     expect(validateProject(result.project)).toEqual([])
   })
-  it('refuses unsupported automatic multi-fragment rewriting instead of silently retriggering a held note', () => {
+  it('preserves the held tail with internal ties when entry leaves several notation fragments', () => {
     let project = createProject(false)
     const first = allSelections(project)[0]
     project = replaceEvent(project, first, event => ({ ...event, kind: 'note', pitch: { step: 'C', octave: 4, alter: 0 } }))
     const entry = beginEntry(project, createNoteEntry(), first)
-    expect(() => writeEntry(project, { ...entry, duration: fraction(1, 16) }, { step: 'D', octave: 4, alter: 0 })).toThrow('붙임줄')
+    const result = writeEntry(project, { ...entry, duration: fraction(1, 16) }, { step: 'D', octave: 4, alter: 0 })
+    expect(notes(result.project).map(event => [event.duration, event.kind === 'note' ? event.tieTo ?? [] : []])).toEqual([
+      [fraction(1, 16), []], [fraction(3, 4), [60]], [fraction(3, 16), []],
+    ])
+    expect(validateProject(result.project)).toEqual([])
     expect(tones(project)).toEqual([60])
   })
   it('restores the next input position through Undo/Redo while keeping the chosen duration and mode', () => {

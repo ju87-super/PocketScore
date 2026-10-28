@@ -136,10 +136,13 @@ export default function EnsembleView(props: Props) {
     const chordTarget = model.kind === 'note' && !entry.rest && part.instrument !== 'drums' ? target : undefined
     const duration = chordTarget ? model.duration : entry.duration
     const capacity = measureDuration(staff.score.timeSignature)
+    const measureIndex = staff.score.measures.indexOf(measure)
+    const absoluteEnd = add({ n: capacity.n * measureIndex, d: capacity.d }, add(position.start, duration))
     const preview: NoteGhost = { svg: hit.svg, x: model.kind === 'rest' && equal(model.duration, capacity) ? bar.x + 10 : hit.x, y: previewY, bottom: bar.bottom, duration, rest: entry.rest,
       accidental: entry.accidental !== null && entry.accidental !== activeAlter(project, position, pitch.step, pitch.octave) ? entry.accidental : null,
       voice: measure.voices.findIndex(item => item.id === target.voiceId), label: entry.rest ? `${durationName(duration)}쉼표` : `${pitchName(pitch)} ${durationName(duration)}음표`,
-      valid: (entry.rest || midi(pitch) >= 36 && midi(pitch) <= 96) && compare(add(position.start, duration), capacity) <= 0 }
+      valid: (entry.rest || midi(pitch) >= 36 && midi(pitch) <= 96) && compare(absoluteEnd, { n: capacity.n * 128, d: capacity.d }) <= 0
+        && (entry.rest || part.instrument !== 'drums' || compare(add(position.start, duration), capacity) <= 0) }
     return { position: { ...position, voiceId: target.voiceId }, pitch, chordTarget, preview }
   }
   function barAt(event: ScorePointer, hit = hitAt(event)) {

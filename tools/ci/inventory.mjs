@@ -9,7 +9,7 @@ for await (const file of glob('src/**/*.test.{ts,tsx}')) {
   groups[group].push(file)
 }
 for (const [name, files] of Object.entries(groups)) if (!files.length) throw new Error(`CI suite ${name} has no tests`)
-const report = { groups, unsupported: ['tuplet editing/playback', 'automatic barline/tied-fragment input', 'MuseScore WASM runtime (separate manual workflow)', 'physical Galaxy Tab/S Pen'] }
+const report = { groups, unsupported: ['tuplet editing/playback', 'percussion tied-fragment input', 'MuseScore WASM runtime (separate manual workflow)', 'physical Galaxy Tab/S Pen'] }
 await mkdir('reports/quality', { recursive: true })
 await writeFile('reports/quality/test-inventory.json', JSON.stringify(report, null, 2) + '\n')
 console.log(JSON.stringify(report, null, 2))

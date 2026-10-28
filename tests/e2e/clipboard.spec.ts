@@ -145,14 +145,19 @@ test('text fields keep native Ctrl C/V and do not copy or paste score data', asy
   expect((await saved(page)).parts).toEqual(clipboardProject().parts)
 })
 
-test('barline-crossing paste reports why and leaves music, bar count and undo history intact', async ({ page }) => {
+test('barline-crossing paste creates ties and one undo restores the previous music and bar count', async ({ page }) => {
   await note(page, target(1)).click(); await page.keyboard.press('Control+c')
   await note(page, target(0, 0, 3, 3)).click()
   await page.getByRole('button', { name: '8분음표', exact: true }).click()
   const before = await saved(page), rest = before.parts[0].staves[0].score.measures[3].voices[0].events.at(-1)!
   await note(page, { ...target(0, 0, 3), eventId: rest.id }).click()
   await page.keyboard.press('Control+v')
-  await expect(page.locator('.studio-status')).toContainText('마디선을 넘어')
+  await expect(page.locator('.studio-status')).toContainText('붙여넣기 완료')
+  const after = await saved(page), score = after.parts[0].staves[0].score
+  expect(score.measures).toHaveLength(5)
+  expect(score.measures[3].voices[0].events.at(-1)).toMatchObject({ duration: { n: 1, d: 8 }, tieTo: [72] })
+  expect(score.measures[4].voices[0].events[0]).toMatchObject({ duration: { n: 1, d: 8 }, pitch: { step: 'C', octave: 5 } })
+  await page.getByRole('button', { name: '실행 취소', exact: true }).click()
   expect(await saved(page)).toEqual(before)
   await page.getByRole('button', { name: '실행 취소', exact: true }).click()
   expect(await saved(page)).toEqual(clipboardProject())

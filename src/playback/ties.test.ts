@@ -6,6 +6,7 @@ import { fraction } from '../music/rational'
 import { clearTies } from '../music/ties'
 import { rhythmTarget as target } from '../../tests/fixtures/rhythm'
 import { updateStaff } from '../project/model'
+import { beginEntry, createNoteEntry, writeEntry, addEntryChord } from '../project/noteEntry'
 
 // Decode the public SMF bytes independently of the timeline builder.
 function midiNotes(buffer: ArrayBuffer) {
@@ -22,6 +23,17 @@ function midiNotes(buffer: ArrayBuffer) {
   return result
 }
 describe('tied performance and exact short-note timing', () => {
+  it('emits one MIDI attack/release per automatically split chord pitch across a tempo change', () => {
+    const source = rhythmProject(), project = { ...source, tempos: [{ measure: 0, bpm: 120 }, { measure: 1, bpm: 60 }] }
+    const entry = beginEntry(project, createNoteEntry(), target(0, 3))
+    const note = writeEntry(project, { ...entry, duration: fraction(1) }, { step: 'C', octave: 4, alter: 0 })
+    const chord = addEntryChord(note.project, note.entry, note.selection, { step: 'E', octave: 4, alter: 0 }).project
+    const timeline = compileTimeline(chord), messages = midiNotes(timelineMIDI(chord, timeline))
+    for (const pitch of [60, 64]) {
+      expect(timeline.notes.filter(note => note.midi === pitch && note.startTick >= 1440)).toMatchObject([{ startTick: 1440, endTick: 3360, start: 1.5, end: 5 }])
+      expect(messages.filter(item => item.pitch === pitch && item.tick >= 1440)).toEqual([{ tick: 1440, on: true, pitch }, { tick: 3360, on: false, pitch }])
+    }
+  })
   it('holds selected chord tones once while articulating the other chord components independently', () => {
     const project = heldRhythmProject(), timeline = compileTimeline(project)
     expect(timeline.notes.filter(note => note.midi === 60)).toMatchObject([{ startTick: 0, endTick: 960, start: 0, end: 1 }])

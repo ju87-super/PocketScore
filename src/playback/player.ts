@@ -16,6 +16,7 @@ export class Player implements PlaybackBackend {
   private tick: ReturnType<typeof setInterval> | undefined
   private timeline: Timeline | null = null
   private position = 0
+  private pendingSeek: number | null = null
   private playing = false
   private loop = false
   private loadedProject: Project | null = null
@@ -46,6 +47,12 @@ export class Player implements PlaybackBackend {
     await this.synth.isReady
     this.seq = new Sequencer(this.synth, { skipToFirstNoteOn: false })
     this.seq.loopCount = 0
+    this.seq.eventHandler.addEvent('timeChange', 'pocketscore-seek', time => {
+      if (this.playing && this.pendingSeek !== null && Math.abs(time - this.pendingSeek) < 0.000001) {
+        this.pendingSeek = null
+        this.emit()
+      }
+    })
     this.seq.eventHandler.addEvent('songEnded', 'pocketscore', () => {
       if (!this.playing) return
       if (this.loop) { this.seek(0); this.seq?.play() }
@@ -55,7 +62,9 @@ export class Player implements PlaybackBackend {
     this.emit()
   }
   private emit() {
-    if (this.playing && this.seq) this.position = Math.min(this.timeline?.duration ?? 0, Math.max(0, this.seq.currentTime))
+    // The worklet acknowledges seeks asynchronously. Reporting the old clock
+    // here resets the controlled slider and its final change event seeks back.
+    if (this.playing && this.seq && this.pendingSeek === null) this.position = Math.min(this.timeline?.duration ?? 0, Math.max(0, this.seq.currentTime))
     this.analyser.getFloatTimeDomainData(this.samples)
     let peak = 0
     for (const sample of this.samples) peak = Math.max(peak, Math.abs(sample))
@@ -86,6 +95,7 @@ export class Player implements PlaybackBackend {
     }
     if (generation !== this.generation) { this.seq.pause(); return }
     this.position = start >= this.timeline!.duration ? 0 : Math.max(0, start)
+    this.pendingSeek = this.position
     // Start before seeking: the sequencer's paused seek snaps to the next MIDI
     // event, which may be the end of a multi-bar held note.
     this.seq.play()
@@ -97,7 +107,8 @@ export class Player implements PlaybackBackend {
   }
   pause() {
     ++this.generation
-    if (this.playing && this.seq) this.position = this.seq.currentTime
+    if (this.playing && this.seq && this.pendingSeek === null) this.position = this.seq.currentTime
+    this.pendingSeek = null
     this.playing = false
     this.seq?.pause()
     this.synth?.stopAll(true)
@@ -113,7 +124,7 @@ export class Player implements PlaybackBackend {
   seek(position: number) {
     this.synth?.stopAll(true)
     this.position = Math.max(0, Math.min(this.timeline?.duration ?? 0, position))
-    if (this.seq && this.playing) { this.seq.currentTime = this.position; this.restoreHeldNotes() }
+    if (this.seq && this.playing) { this.pendingSeek = this.position; this.seq.currentTime = this.position; this.restoreHeldNotes() }
     this.emit()
   }
   private restoreHeldNotes() {

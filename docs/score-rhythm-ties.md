@@ -1,5 +1,7 @@
 # 3단계 — 32·64분 리듬과 기본 붙임줄
 
+후속 [자동 붙임줄 입력](automatic-tie-input.md)은 아래 최초 구현의 자동 분할 제한을 해제한다.
+
 2026-10-28, main `fab34fbdc3056577c3bec382a8b85352680d70fa`, AGENTS.md와 PR 상태를 확인하고 `feat/rhythm-ties`에서 작업한다. PR #12의 컨테이너 CI 개선을 포함한 최신 main을 기준으로 한다. PR 생성은 사용자가 수행한다.
 
 ## 편집
