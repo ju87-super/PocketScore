@@ -1,4 +1,4 @@
-import { blankScore, primaryScore, rests, uid, updateStaff } from './model'
+import { blankScore, primaryScore, reconcileProjectTies, rests, uid, updateStaff } from './model'
 import type { Project } from './model'
 import { measureDuration } from '../music/settings'
 
@@ -29,5 +29,5 @@ export function removeMeasure(project: Project, index: number): Project {
   const effective = [...oldTempos].reverse().find(tempo => tempo.measure <= index + 1)?.bpm ?? oldTempos[0].bpm
   const tempos = oldTempos.filter(tempo => tempo.measure !== index).map(tempo => ({ ...tempo, measure: tempo.measure > index ? tempo.measure - 1 : tempo.measure }))
   if (!tempos.some(tempo => tempo.measure === index) && index < primaryScore(project).measures.length - 1) tempos.push({ measure: index, bpm: effective })
-  return { ...project, tempos: tempos.sort((a, b) => a.measure - b.measure), parts: project.parts.map(part => ({ ...part, staves: part.staves.map(staff => ({ ...staff, score: { ...staff.score, measures: staff.score.measures.filter((_, i) => i !== index) } })) })) }
+  return reconcileProjectTies(project, { ...project, tempos: tempos.sort((a, b) => a.measure - b.measure), parts: project.parts.map(part => ({ ...part, staves: part.staves.map(staff => ({ ...staff, score: { ...staff.score, measures: staff.score.measures.filter((_, i) => i !== index) } })) })) })
 }

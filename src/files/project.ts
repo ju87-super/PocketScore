@@ -47,14 +47,17 @@ export function parseProject(source: string): Project {
       for (const measure of staff.score.measures) {
         object(measure, ['id', 'voices']); text(measure.id); list(measure.voices, 4)
         for (const voice of measure.voices) {
-          object(voice, ['id', 'events']); text(voice.id); list(voice.events, 24)
+          object(voice, ['id', 'events']); text(voice.id); list(voice.events, 96)
           for (const event of voice.events) {
             if (!event || typeof event !== 'object') throw new Error('이벤트가 올바르지 않습니다.')
             const kind = (event as Record<string, unknown>).kind
-            object(event, kind === 'note' ? ['id', 'kind', 'start', 'duration', 'pitch'] : ['id', 'kind', 'start', 'duration'], kind === 'note' ? ['chord'] : [])
+            object(event, kind === 'note' ? ['id', 'kind', 'start', 'duration', 'pitch'] : ['id', 'kind', 'start', 'duration'], kind === 'note' ? ['chord', 'tieTo'] : [])
             if (kind !== 'note' && kind !== 'rest') throw new Error('지원하지 않는 이벤트 형식입니다.')
             text(event.id); rational(event.start); rational(event.duration)
-            if (kind === 'note') { pitch(event.pitch); if (event.chord !== undefined) { list(event.chord, 7); event.chord.forEach(pitch) } }
+            if (kind === 'note') {
+              pitch(event.pitch); if (event.chord !== undefined) { list(event.chord, 7); event.chord.forEach(pitch) }
+              if (event.tieTo !== undefined) { list(event.tieTo, 8); event.tieTo.forEach(number) }
+            }
           }
         }
       }

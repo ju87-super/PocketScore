@@ -8,6 +8,7 @@ import { keyAlter, measureDuration } from '../music/settings'
 import { allSelections, rests, staffAt, uid, updateStaff } from './model'
 import type { Project, ProjectSelection } from './model'
 import { addMeasure } from './structure'
+import { tiedContinuations } from '../music/ties'
 
 export type EntryPosition = Readonly<{ partId: string; staffId: string; voiceId: string; measureId: string; start: Rational }>
 export type NoteEntry = Readonly<{
@@ -15,10 +16,10 @@ export type NoteEntry = Readonly<{
   duration: Rational; reference: Pitch; accidental: Pitch['alter'] | null; rest: boolean; chord: boolean
 }>
 export const createNoteEntry = (): NoteEntry => ({ enabled: false, cursor: null, last: null, duration: fraction(1, 4), reference: { step: 'C', octave: 4, alter: 0 }, accidental: null, rest: false, chord: false })
-export const ENTRY_DURATIONS: Readonly<Record<string, Rational>> = { '3': fraction(1, 16), '4': fraction(1, 8), '5': fraction(1, 4), '6': fraction(1, 2), '7': fraction(1) }
+export const ENTRY_DURATIONS: Readonly<Record<string, Rational>> = { '1': fraction(1, 64), '2': fraction(1, 32), '3': fraction(1, 16), '4': fraction(1, 8), '5': fraction(1, 4), '6': fraction(1, 2), '7': fraction(1) }
 export function dottedDuration(duration: Rational): Rational {
   const next = duration.n === 3 ? fraction(1, duration.d / 2) : fraction(duration.n * 3, duration.d * 2)
-  if (!DURATIONS.some(item => equal(item, next))) throw new Error('현재 지원하는 점음표는 점8분·점4분·점2분입니다.')
+  if (!DURATIONS.some(item => equal(item, next))) throw new Error('점음표는 점32분부터 점2분까지 지원합니다. 점64분·점온음표는 아직 지원하지 않습니다.')
   return next
 }
 export function entryPosition(project: Project, target: ProjectSelection): EntryPosition {
@@ -48,8 +49,9 @@ export function activeAlter(project: Project, cursor: EntryPosition, step: Pitch
   const score = staffAt(project, cursor).staff.score
   if (equal(cursor.start, measureDuration(score.timeSignature))) return keyAlter(score.keySignature, step)
   const bar = score.measures.find(measure => measure.id === cursor.measureId)!
+  const continuations = tiedContinuations(score)
   const occurrences = bar.voices.flatMap(voice => voice.events.flatMap(event => compare(event.start, cursor.start) < 0
-    ? eventPitches(event).filter(pitch => pitch.step === step && pitch.octave === octave).map(pitch => ({ start: event.start, alter: pitch.alter })) : []))
+    ? eventPitches(event).flatMap((pitch, i) => pitch.step === step && pitch.octave === octave && !continuations.has(i ? `${event.id}:${i}` : event.id) ? [{ start: event.start, alter: pitch.alter }] : []) : []))
     .sort((a, b) => compare(b.start, a.start))
   if (!occurrences.length || occurrences.some(item => equal(item.start, occurrences[0].start) && item.alter !== occurrences[0].alter)) return keyAlter(score.keySignature, step)
   return occurrences[0].alter
@@ -63,11 +65,13 @@ export function letterPitch(project: Project, entry: NoteEntry, step: Pitch['ste
   if (!candidates.length) throw new Error('입력할 음이 지원 음역 C2–C7을 벗어납니다.')
   return candidates[0]
 }
-function fragment(event: RhythmEvent, duration: Rational): RhythmEvent[] {
+function fragment(event: RhythmEvent, duration: Rational, side: 'before' | 'after'): RhythmEvent[] {
   if (equal(duration, ZERO)) return []
   if (event.kind === 'rest') return rests(duration)
-  if (!DURATIONS.some(item => equal(item, duration))) throw new Error('이 입력은 기존 음표에 붙임줄이 필요합니다. 현재는 지원하지 않아 변경을 취소했습니다.')
-  return [{ ...event, id: uid(), duration }]
+  if (!DURATIONS.some(item => equal(item, duration))) throw new Error('기존 음표를 여러 조각의 붙임줄로 자동 분할해야 합니다. 이 입력은 아직 지원하지 않아 변경을 취소했습니다.')
+  const fragment = { ...event, id: side === 'before' ? event.id : uid(), duration }
+  if (side === 'before') delete fragment.tieTo
+  return [fragment]
 }
 export type EntryResult = { project: Project; entry: NoteEntry; selection: ProjectSelection }
 export function followingPosition(project: Project, cursor: EntryPosition, duration: Rational): EntryPosition {
@@ -89,7 +93,7 @@ export function writeEntry(project: Project, entry: NoteEntry, value: Pitch | nu
     cursor = { ...cursor, measureId: score.measures[index + 1].id, start: ZERO }
   }
   const end = add(cursor.start, entry.duration)
-  if (compare(cursor.start, ZERO) < 0 || compare(end, capacity) > 0) throw new Error('입력 길이가 마디선을 넘습니다. 자동 붙임줄은 아직 지원하지 않습니다. 더 짧은 길이를 선택하세요.')
+  if (compare(cursor.start, ZERO) < 0 || compare(end, capacity) > 0) throw new Error('입력 길이가 마디선을 넘습니다. 자동 분할 입력은 아직 지원하지 않습니다. 각 마디에 음표를 입력한 뒤 붙임줄로 연결하세요.')
   const bar = score.measures.find(measure => measure.id === cursor.measureId)
   const voice = bar?.voices.find(item => item.id === cursor.voiceId)
   if (!bar || !voice) throw new Error('입력할 마디와 성부를 선택하세요.')
@@ -100,8 +104,8 @@ export function writeEntry(project: Project, entry: NoteEntry, value: Pitch | nu
     if (compare(eventEnd, cursor.start) <= 0) before.push(event)
     else if (compare(event.start, end) >= 0) after.push(event)
     else {
-      if (compare(event.start, cursor.start) < 0) before.push(...fragment(event, subtract(cursor.start, event.start)))
-      if (compare(eventEnd, end) > 0) after.push(...fragment(event, subtract(eventEnd, end)))
+      if (compare(event.start, cursor.start) < 0) before.push(...fragment(event, subtract(cursor.start, event.start), 'before'))
+      if (compare(eventEnd, end) > 0) after.push(...fragment(event, subtract(eventEnd, end), 'after'))
     }
   }
   project = updateStaff(project, cursor.staffId, staff => ({ ...staff, score: { ...staff.score, measures: staff.score.measures.map(measure => measure.id !== cursor.measureId ? measure : { ...measure,

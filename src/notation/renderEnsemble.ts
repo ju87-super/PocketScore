@@ -1,6 +1,6 @@
 import { Accidental, BarlineType, Beam, Dot, Formatter, Fraction, Renderer, Stave, StaveNote, Voice } from 'vexflow/bravura'
 import { durationName, eventName, eventPitches } from '../music/score'
-import type { Measure } from '../music/score'
+import type { Measure, Score } from '../music/score'
 import { measureAccidentals } from '../music/accidentals'
 import { KEY_NAMES, meterParts } from '../music/settings'
 import { midi, pitchName, STEPS } from '../music/pitch'
@@ -16,15 +16,18 @@ import type { Rational } from '../music/rational'
 import { rhythmSymbol, VOICE_COLORS } from './symbols'
 import { beamGroups, layoutSystems } from './engraving'
 import type { MeasureMetrics } from './engraving'
+import { tiedContinuations, tieLinks } from '../music/ties'
+import { drawTies } from './ties'
+import type { TieAnchor } from './ties'
 
 export type EnsembleHit = { target: ProjectSelection; svg: SVGSVGElement; x: number; y: number; hit: SVGRectElement; glyph?: SVGElement }
 export type EnsembleBar = { target: ProjectSelection; svg: SVGSVGElement; group: SVGGElement; background: SVGRectElement; x: number; y: number; width: number; height: number; bottom: number; index: number }
 export type EnsembleScene = { hits: EnsembleHit[]; bars: EnsembleBar[]; columns: number; width: number; height: number; minimumWidth: number }
 export type NoteGhost = { svg: SVGSVGElement; x: number; y: number; bottom: number; duration: Rational; rest: boolean; accidental: -1 | 0 | 1 | null; voice: number; label: string; valid: boolean }
-type StaffRow = { part: Part; staff: Staff; y: number }
-type CachedBar = { models: readonly Measure[]; groups: SVGGElement[]; hits: EnsembleHit[]; bars: EnsembleBar[] }
-type MeasuredBar = { models: readonly Measure[]; metrics: MeasureMetrics }
-type Cache = { layout: string; scene: EnsembleScene; renderers: Renderer[]; bars: CachedBar[]; metricsKey: string; measured: MeasuredBar[] }
+type StaffRow = { part: Part; staff: Staff; y: number; continuations: ReadonlySet<string> }
+type CachedBar = { models: readonly Measure[]; incoming: string; groups: SVGGElement[]; hits: EnsembleHit[]; bars: EnsembleBar[]; notes: Map<string, TieAnchor> }
+type MeasuredBar = { models: readonly Measure[]; incoming: string; metrics: MeasureMetrics }
+type Cache = { layout: string; scene: EnsembleScene; renderers: Renderer[]; bars: CachedBar[]; metricsKey: string; measured: MeasuredBar[]; tiedScores?: readonly Score[] }
 const cache = new WeakMap<HTMLDivElement, Cache>()
 const ghosts = new WeakMap<EnsembleScene, { group: SVGGElement; key: string }>()
 const svgElement = <K extends keyof SVGElementTagNameMap>(name: K) => document.createElementNS('http://www.w3.org/2000/svg', name)
@@ -38,19 +41,19 @@ function rowsOf(project: Project): { rows: StaffRow[]; height: number } {
     const low = Math.min(40, ...ys), high = Math.max(100, ...ys)
     const y = top + Math.max(12, 28 - low)
     top = y + Math.max(116, high + 30) + 14
-    return { part, staff, y }
+    return { part, staff, y, continuations: tiedContinuations(staff.score) }
   }))
   return { rows, height: top + 12 }
 }
 function staveNotes(row: StaffRow, measure: Measure, stave: Stave) {
-  const accidentals = measureAccidentals(measure, row.staff.score.keySignature)
+  const accidentals = measureAccidentals(measure, row.staff.score.keySignature, row.continuations)
   const meter = meterParts(row.staff.score.timeSignature)
   return measure.voices.map((model, voiceIndex) => {
     const notes = model.events.map(event => {
       const dotted = event.duration.n === 3
       const denominator = event.duration.d / (dotted ? 2 : 1)
       const fullRest = model.events.length === 1 && event.kind === 'rest' && equal(event.duration, measureDuration(row.staff.score.timeSignature))
-      const duration = fullRest ? 'w' : ({ 1: 'w', 2: 'h', 4: 'q', 8: '8', 16: '16' } as Record<number, string>)[denominator]
+      const duration = fullRest ? 'w' : ({ 1: 'w', 2: 'h', 4: 'q', 8: '8', 16: '16', 32: '32', 64: '64' } as Record<number, string>)[denominator]
       const keys = eventPitches(event).map(p => row.staff.clef === 'percussion' ? ({ 36: 'f/4', 38: 'c/5', 42: 'g/5' }[midi(p)] ?? 'b/4') : `${p.step.toLowerCase()}${p.alter === 1 ? '#' : p.alter === -1 ? 'b' : ''}/${p.octave}`)
       const note = new StaveNote({ clef: row.staff.clef, keys: keys.length ? keys : [row.staff.clef === 'bass' ? 'd/3' : 'b/4'], duration, durationOverride: fullRest ? new Fraction(event.duration.n, event.duration.d) : undefined, dots: dotted && !fullRest ? 1 : 0, type: event.kind === 'rest' ? 'r' : 'n', autoStem: measure.voices.length === 1, stemDirection: measure.voices.length > 1 ? voiceIndex % 2 === 0 ? 1 : -1 : undefined }).setStave(stave)
       if (dotted && !fullRest) Dot.buildAndAttach([note], { all: true })
@@ -99,8 +102,12 @@ export function renderEnsemble(container: HTMLDivElement, project: Project, avai
   const metricsKey = JSON.stringify([score.keySignature, score.timeSignature, count, rows.map(row => [row.staff.id, row.staff.clef])])
   const measured = Array.from({ length: count }, (_, index): MeasuredBar => {
     const models = rows.map(row => row.staff.score.measures[index])
+    const incoming = JSON.stringify(models.map((bar, i) => bar.voices.flatMap(voice => voice.events.flatMap(event => eventPitches(event).flatMap((_, tone) => {
+      const key = tone ? `${event.id}:${tone}` : event.id
+      return rows[i].continuations.has(key) ? [key] : []
+    })))))
     const previous = current?.metricsKey === metricsKey ? current.measured[index] : undefined
-    return previous && models.every((model, i) => model === previous.models[i]) ? previous : { models, metrics: measureMetrics(rows, index) }
+    return previous && previous.incoming === incoming && models.every((model, i) => model === previous.models[i]) ? previous : { models, incoming, metrics: measureMetrics(rows, index) }
   })
   const systems = layoutSystems(measured.map(bar => bar.metrics), availableWidth, continuous)
   const width = Math.max(...systems.map(system => system.width))
@@ -128,7 +135,7 @@ export function renderEnsemble(container: HTMLDivElement, project: Project, avai
     const index = placement.index, x = placement.x, measureWidth = placement.width, systemStart = column === 0
     const models = measured[index].models
     const previous = result.bars[index]
-    if (previous && previous.models.every((bar, i) => bar === models[i])) continue
+    if (previous && previous.incoming === measured[index].incoming && previous.models.every((bar, i) => bar === models[i])) continue
     const renderer = result.renderers[systemIndex], context = renderer.getContext()
     const svg = container.querySelectorAll<SVGSVGElement>('svg')[systemIndex]
     const staves = stavesFor(rows, index, systemStart, x, measureWidth)
@@ -145,7 +152,7 @@ export function renderEnsemble(container: HTMLDivElement, project: Project, avai
       const slope = Math.min(0.25, 10 / Math.max(1, span))
       beam.renderOptions.maxSlope = slope; beam.renderOptions.minSlope = -slope
     })))
-    const entry: CachedBar = { models, groups: [], hits: [], bars: [] }
+    const entry: CachedBar = { models, incoming: measured[index].incoming, groups: [], hits: [], bars: [], notes: new Map() }
     rows.forEach((row, rowIndex) => {
       const stave = staves[rowIndex], measure = models[rowIndex]
       const group: SVGGElement = context.openGroup('ensemble-measure')
@@ -178,6 +185,7 @@ export function renderEnsemble(container: HTMLDivElement, project: Project, avai
         voice.draw(context, stave)
         notes.forEach((note, eventIndex) => {
           const event = model.events[eventIndex]
+          entry.notes.set(event.id, { note, renderer, system: systemIndex, voiceCount: measure.voices.length })
           note.getSVGElement()?.setAttribute('data-note-event', event.id)
           note.getSVGElement()?.setAttribute('data-stem-direction', String(note.getStemDirection()))
           const tones = Math.max(1, eventPitches(event).length)
@@ -224,6 +232,10 @@ export function renderEnsemble(container: HTMLDivElement, project: Project, avai
   }
   result.scene.hits = result.bars.flatMap(bar => bar.hits)
   result.scene.bars = result.bars.flatMap(bar => bar.bars)
+  if (!result.tiedScores || rows.some((row, i) => row.staff.score !== result.tiedScores![i])) {
+    drawTies(rows.flatMap(row => tieLinks(row.staff.score)), new Map(result.bars.flatMap(bar => [...bar.notes])))
+    result.tiedScores = rows.map(row => row.staff.score)
+  }
   return result.scene
 }
 

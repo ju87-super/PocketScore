@@ -1,7 +1,7 @@
 import { Sequencer, WorkletSynthesizer } from 'spessasynth_lib'
 import processorURL from 'spessasynth_lib/dist/spessasynth_processor.min.js?url'
 import type { Project } from '../project/model'
-import { compileTimeline, timelineMIDI } from './timeline'
+import { activeMelodicNotes, compileTimeline, timelineMIDI } from './timeline'
 import type { Timeline } from './timeline'
 import { MS_BASIC } from './backend'
 import type { PlaybackBackend, PlaybackState } from './backend'
@@ -86,10 +86,13 @@ export class Player implements PlaybackBackend {
     }
     if (generation !== this.generation) { this.seq.pause(); return }
     this.position = start >= this.timeline!.duration ? 0 : Math.max(0, start)
+    // Start before seeking: the sequencer's paused seek snaps to the next MIDI
+    // event, which may be the end of a multi-bar held note.
+    this.seq.play()
     this.seq.currentTime = this.position
+    this.restoreHeldNotes()
     this.gain.gain.value = project.masterVolume
     this.playing = true
-    this.seq.play()
     this.emit()
   }
   pause() {
@@ -110,8 +113,11 @@ export class Player implements PlaybackBackend {
   seek(position: number) {
     this.synth?.stopAll(true)
     this.position = Math.max(0, Math.min(this.timeline?.duration ?? 0, position))
-    if (this.seq) this.seq.currentTime = this.position
+    if (this.seq && this.playing) { this.seq.currentTime = this.position; this.restoreHeldNotes() }
     this.emit()
+  }
+  private restoreHeldNotes() {
+    for (const note of activeMelodicNotes(this.timeline, this.position)) this.synth?.noteOn(note.channel, note.midi, note.velocity)
   }
   setLoop(loop: boolean) { this.loop = loop }
   destroy() {

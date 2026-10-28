@@ -4,10 +4,11 @@ import { midi, movePitch, pitchName, STEPS } from './pitch'
 import type { Pitch } from './pitch'
 import { measureDuration, TIME_SIGNATURES, validKey } from './settings'
 import type { TimeSignature } from './settings'
+import { rewriteTiedPitches, tieLinks, validateTies } from './ties'
 
 type EventBase = Readonly<{ id: string; start: Rational; duration: Rational }>
 export type RhythmEvent = EventBase & (
-  | Readonly<{ kind: 'note'; pitch: Pitch; chord?: readonly Pitch[] }>
+  | Readonly<{ kind: 'note'; pitch: Pitch; chord?: readonly Pitch[]; tieTo?: readonly number[] }>
   | Readonly<{ kind: 'rest' }>
 )
 export type Voice = Readonly<{ id: string; events: readonly RhythmEvent[] }>
@@ -18,8 +19,8 @@ export type Selection = Readonly<{ measureId: string; voiceId: string; eventId: 
 export const eventPitches = (event: RhythmEvent): readonly Pitch[] => event.kind === 'note' ? [event.pitch, ...(event.chord ?? [])] : []
 
 // Durations are whole-note fractions, including a single dot. No floating-point timing.
-export const DURATIONS = [fraction(1, 16), fraction(1, 8), fraction(3, 16), fraction(1, 4), fraction(3, 8), fraction(1, 2), fraction(3, 4), WHOLE]
-const LABELS = ['16분', '8분', '점8분', '4분', '점4분', '2분', '점2분', '온']
+export const DURATIONS = [fraction(1, 64), fraction(1, 32), fraction(3, 64), fraction(1, 16), fraction(3, 32), fraction(1, 8), fraction(3, 16), fraction(1, 4), fraction(3, 8), fraction(1, 2), fraction(3, 4), WHOLE]
+const LABELS = ['64분', '32분', '점32분', '16분', '점16분', '8분', '점8분', '4분', '점4분', '2분', '점2분', '온']
 export const durationName = (duration: Rational) => LABELS[DURATIONS.findIndex(item => equal(item, duration))] ?? formatFraction(duration)
 export const eventName = (event: RhythmEvent) => event.kind === 'note'
   ? `${pitchName(event.pitch)} ${durationName(event.duration)}음표`
@@ -62,7 +63,7 @@ export function validateScore(score: Score): string[] {
       if (!equal(end, measureDuration(score.timeSignature))) errors.push(`${measure.id}/${voice.id}: 박자 합계 ${formatFraction(end)} (${score.timeSignature} 필요)`)
     }
   }
-  return errors
+  return [...errors, ...validateTies(score)]
 }
 
 export function locate(score: Score, selection: Selection) {
@@ -99,7 +100,7 @@ function makeRests(score: Score, amount: Rational, used = new Set(score.measures
       remaining = subtract(remaining, duration)
     }
   }
-  if (!equal(remaining, ZERO)) throw new Error('16분음표보다 짧은 길이는 지원하지 않습니다.')
+  if (!equal(remaining, ZERO)) throw new Error('64분음표보다 짧은 길이는 지원하지 않습니다.')
   return rests
 }
 
@@ -107,6 +108,7 @@ export function resizeEvent(score: Score, selection: Selection, duration: Ration
   if (!DURATIONS.some(item => equal(item, duration))) throw new Error('지원하지 않는 길이입니다.')
   const { voice, index, event } = locate(score, selection)
   if (equal(duration, event.duration)) return score
+  if (tieLinks(score).some(link => link.from.event.id === event.id || link.to.event.id === event.id)) throw new Error('붙임줄로 연결된 음표는 붙임줄을 해제한 뒤 길이를 변경하세요.')
   const delta = subtract(duration, event.duration)
   let nextIndex = index + 1
   let restSpace = ZERO
@@ -127,18 +129,21 @@ export function resizeEvent(score: Score, selection: Selection, duration: Ration
 }
 
 export function transposeEvent(score: Score, selection: Selection, amount: number, chromatic = false): Score {
-  const { voice, index, event } = locate(score, selection)
+  const { event } = locate(score, selection)
   if (event.kind === 'rest' || amount === 0) return score
   const pitches = [...eventPitches(event)]
   const tone = selection.pitchIndex ?? 0
   if (!pitches[tone]) throw new Error('선택한 화음 구성음을 찾을 수 없습니다.')
   pitches[tone] = movePitch(pitches[tone], amount, chromatic, score.keySignature)
   if (new Set(pitches.map(midi)).size !== pitches.length) throw new Error('화음에 같은 음높이가 이미 있습니다.')
-  return replaceVoice(score, selection, voice.events.map((item, i) => i === index ? { ...event, pitch: pitches[0], chord: pitches.slice(1) } : item))
+  const next = rewriteTiedPitches(score, [selection], () => pitches[tone])
+  const errors = validateScore(next)
+  if (errors.length) throw new Error(errors.join(' '))
+  return next
 }
 
 export function setAccidental(score: Score, selection: Selection, alter: Pitch['alter']): Score {
-  const { voice, index, event } = locate(score, selection)
+  const { event } = locate(score, selection)
   if (event.kind === 'rest') return score
   const pitches = [...eventPitches(event)]
   const tone = selection.pitchIndex ?? 0
@@ -147,8 +152,10 @@ export function setAccidental(score: Score, selection: Selection, alter: Pitch['
   if (![-1, 0, 1].includes(alter)) throw new Error('지원하지 않는 임시표입니다.')
   pitches[tone] = { ...pitches[tone], alter }
   if (new Set(pitches.map(midi)).size !== pitches.length) throw new Error('화음에 같은 음높이가 이미 있습니다.')
-  return replaceVoice(score, selection, voice.events.map((item, i) => i === index
-    ? { ...event, pitch: pitches[0], chord: pitches.slice(1) } : item))
+  const next = rewriteTiedPitches(score, [selection], () => pitches[tone])
+  const errors = validateScore(next)
+  if (errors.length) throw new Error(errors.join(' '))
+  return next
 }
 
 export function setKeySignature(score: Score, keySignature: number): Score {
@@ -159,6 +166,7 @@ export function setKeySignature(score: Score, keySignature: number): Score {
 export function setTimeSignature(score: Score, timeSignature: TimeSignature): Score {
   if (!TIME_SIGNATURES.includes(timeSignature)) throw new Error('지원하지 않는 박자표입니다.')
   if (timeSignature === score.timeSignature) return score
+  if (tieLinks(score).some(link => link.from.measure !== link.to.measure)) throw new Error('마디를 넘는 붙임줄을 해제한 뒤 박자표를 변경하세요.')
   const limit = measureDuration(timeSignature)
   // Reject atomically before touching any voice if a sounding note would be cut.
   for (const [index, measure] of score.measures.entries()) {

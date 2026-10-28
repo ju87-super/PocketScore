@@ -137,7 +137,7 @@ test('Alpha imports valid MusicXML and refuses unsupported notation without chan
   await expect(page.locator('.staff-card')).toHaveCount(4)
   const before = await save(page)
   await open(page, exportMusicXML(project).replace('<note>', '<note><tie type="start"/>'), 'tie.musicxml')
-  await expect(page.locator('.studio-status')).toContainText('지원하지 않는 MusicXML')
+  await expect(page.locator('.studio-status')).toContainText('붙임줄')
   expect(await save(page)).toEqual(before)
 })
 

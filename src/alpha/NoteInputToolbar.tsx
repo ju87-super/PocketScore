@@ -15,6 +15,7 @@ type Props = {
   accidental: (alter: -1 | 0 | 1) => void; selectVoice: (voice: number) => void
   history: (action: 'undo' | 'redo') => void; palette: () => void; properties: () => void
   canCopy: boolean; canPaste: boolean; copy: () => void; paste: () => void; actions: (event: MouseEvent<HTMLButtonElement>) => void
+  canTie: boolean; tied: boolean; canUntie: boolean; tie: () => void; untie: () => void
 }
 function Tool({ label, children, pressed, disabled, onClick, className = '' }: {
   label: string; children: ReactNode; pressed?: boolean; disabled?: boolean; onClick: () => void; className?: string
@@ -50,7 +51,7 @@ export default function NoteInputToolbar(p: Props) {
       <Tool label="화음 입력" pressed={enabled && p.entry.chord} disabled={p.busy || p.group || !p.chordAllowed || p.percussion} onClick={() => p.mode('chord')}><svg aria-hidden="true" viewBox="0 0 24 24"><ellipse cx="9" cy="17" rx="4" ry="2.5"/><ellipse cx="9" cy="11" rx="4" ry="2.5"/><ellipse cx="9" cy="5" rx="4" ry="2.5"/><path d="M12 3h2v17h-2Z"/></svg><span>화음</span></Tool>
     </div>
     <div className="tool-section duration-tools" role="group" aria-label="음표 길이">
-      {[1, 2, 4, 8, 16].map(denominator => {
+      {[1, 2, 4, 8, 16, 32, 64].map(denominator => {
         const duration = fraction(1, denominator), label = `${durationName(duration)}음표`
         return <Tool key={denominator} label={label} pressed={equal(base, duration)} disabled={blocked} onClick={() => p.length(duration)}>
           <span className="music-symbol" aria-hidden="true">{rhythmSymbol(duration)}</span><span className="tool-caption">{durationName(duration)}</span>
@@ -58,6 +59,10 @@ export default function NoteInputToolbar(p: Props) {
       })}
       <Tool label="점음표" pressed={p.duration.n === 3} disabled={blocked} onClick={p.dot}><span className="augmentation-dot" aria-hidden="true">·</span><span className="tool-caption">점</span></Tool>
       <Tool label="쉼표 입력" pressed={enabled && p.entry.rest} disabled={p.busy || p.group} onClick={p.rest}><span className="music-symbol" aria-hidden="true">{rhythmSymbol(fraction(1, 4), true)}</span><span className="tool-caption">쉼표</span></Tool>
+    </div>
+    <div className="tool-section tie-tools" role="group" aria-label="붙임줄">
+      <Tool label="다음 음과 붙임줄" pressed={p.tied} disabled={p.busy || !p.canTie} onClick={p.tie}><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 8Q12 22 21 8Q12 17 3 8Z"/></svg><span>붙임줄</span></Tool>
+      <Tool label="선택 붙임줄 해제" disabled={p.busy || !p.canUntie} onClick={p.untie}><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 8Q12 22 21 8Q12 17 3 8Z"/><path d="m4 3 17 17" stroke="currentColor" strokeWidth="2"/></svg><span>해제</span></Tool>
     </div>
     <div className="tool-section accidental-tools" role="group" aria-label="임시표">
       {([['♭', -1, '\ue260'], ['♮', 0, '\ue261'], ['♯', 1, '\ue262']] as const).map(([label, alter, symbol]) =>

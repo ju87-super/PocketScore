@@ -7,6 +7,8 @@ import { addMeasure, addStaff, addVoice, removeMeasure, removeVoice } from '../p
 import { DURATIONS, durationName, eventName, eventPitches, locate } from '../music/score'
 import { movePitch, pitchName } from '../music/pitch'
 import type { Pitch } from '../music/pitch'
+import { midi } from '../music/pitch'
+import { tieLinks } from '../music/ties'
 import type { Action } from '../editor/state'
 import type { Rational } from '../music/rational'
 import { dottedDuration, ENTRY_DURATIONS, isNoteLetter } from '../project/noteEntry'
@@ -84,6 +86,12 @@ export default function App2() {
     try { return staffAt(project, active) } catch { return { part: project.parts[0], staff: project.parts[0].staves[0] } }
   }, [project, selection, active])
   const event = selection ? locate(current.staff.score, selection).event : null
+  const canTie = !!selection && !groupSelected && event?.kind === 'note' && current.part.instrument !== 'drums'
+  const tied = event?.kind === 'note' && !!event.tieTo?.includes(midi(eventPitches(event)[selection?.pitchIndex ?? 0]))
+  const canUntie = useMemo(() => {
+    const keys = new Set(selected?.targets.map(target => JSON.stringify([target.eventId, target.pitchIndex ?? 0])) ?? [])
+    return project.parts.some(part => part.staves.some(staff => tieLinks(staff.score).some(link => keys.has(JSON.stringify([link.from.event.id, link.from.pitchIndex])) || keys.has(JSON.stringify([link.to.event.id, link.to.pitchIndex])))))
+  }, [project, selected])
   const menuEvent = (() => { try { return scoreMenu ? locate(staffAt(project, scoreMenu.target).staff.score, scoreMenu.target).event : null } catch { return null } })()
   const score = primaryScore(project)
   const timeline = useMemo(() => compileTimeline(project), [project])
@@ -181,8 +189,8 @@ export default function App2() {
         catch (error) { dispatch({ type: 'entrySettings', settings: {} }); setMessage((error as Error).message) }
         return
       }
-      if (/^[1289]$/.test(key)) {
-        event.preventDefault(); dispatch({ type: 'entrySettings', settings: {} }); setMessage('현재 입력 길이는 3~7키(16분~온음표)를 지원합니다.'); return
+      if (/^[89]$/.test(key)) {
+        event.preventDefault(); dispatch({ type: 'entrySettings', settings: {} }); setMessage('현재 입력 길이는 1~7키(64분~온음표)를 지원합니다.'); return
       }
       if (key === 'delete' || key === 'backspace') { event.preventDefault(); dispatch({ type: 'deleteSelected' }); return }
       if (key === '0' && entry.enabled) { event.preventDefault(); dispatch({ type: 'entryWrite', rest: true }); return }
@@ -334,6 +342,7 @@ export default function App2() {
       undo={!!state.past.length} redo={!!state.future.length} left={left} right={right} mode={inputMode} length={chooseDuration} dot={chooseDot} rest={chooseRest}
       accidental={alter => { if (input) dispatch({ type: 'entrySettings', settings: { accidental: entry.accidental === alter ? null : alter } }); else action({ type: 'accidental', alter }); focusScore() }}
       canCopy={!!selected?.targets.length} canPaste={!!state.clipboard && !!selection} copy={copy} paste={paste}
+      canTie={canTie} tied={tied} canUntie={canUntie} tie={() => { dispatch({ type: 'tie' }); focusScore() }} untie={() => { dispatch({ type: 'clearTies' }); focusScore() }}
       actions={event => { if (selection) { const rect = event.currentTarget.getBoundingClientRect(); openScoreMenu(selection, { x: rect.left, y: rect.bottom }) } }}
       selectVoice={chooseVoice} history={type => dispatch({ type })} palette={() => openLeft(!left)} properties={() => openRight(!right)}/>
     <div className="studio-workspace" data-left={left} data-right={right}>
@@ -369,6 +378,7 @@ export default function App2() {
         {selection && <div className="pitch-tools" role="group" aria-label="음높이"><button aria-label="반음 내리기" onClick={() => action({ type: 'pitch', amount: -1, chromatic: true })}>♭ 내려</button><button aria-label="반음 올리기" onClick={() => action({ type: 'pitch', amount: 1, chromatic: true })}>♯ 올려</button></div>}
         {selection && event?.kind === 'note' && <button onClick={() => { dispatch({ type: 'entryMode', enabled: false }); dispatch({ type: 'pick', selection }); dispatch({ type: 'pick', selection, extend: true }); focusScore() }}>화음 전체 선택</button>}
         {selection && <button onClick={() => dispatch({ type: 'deleteSelected' })}>선택 음표 삭제</button>}
+        {selection && <div role="group" aria-label="선택 붙임줄"><button disabled={!canTie} onClick={() => dispatch({ type: 'tie' })}>{tied ? '다음 붙임줄 해제' : '다음 같은 음과 연결'}</button><button disabled={!canUntie} onClick={() => dispatch({ type: 'clearTies' })}>연결된 붙임줄 모두 해제</button></div>}
         {selection && event && <><label>길이<select aria-label="선택 길이" disabled={groupSelected} value={DURATIONS.findIndex(item => item.n === event.duration.n && item.d === event.duration.d)} onChange={event => action({ type: 'duration', duration: DURATIONS[Number(event.target.value)] })}>{DURATIONS.map((duration, index) => <option key={index} value={index}>{durationName(duration)}</option>)}</select></label>
           {event.kind === 'note' && <><label>선택 구성음<select aria-label="화음 구성음" value={selection.pitchIndex ?? 0} onChange={event => dispatch({ type: 'selection', selection: { ...selection, pitchIndex: Number(event.target.value) } })}>{eventPitches(event).map((pitch, index) => <option key={index} value={index}>{index + 1}. {pitchName(pitch)}</option>)}</select></label><button disabled={groupSelected} onClick={() => chord()}>화음에 3도 추가</button><button disabled={groupSelected} onClick={() => chord(true)}>선택 구성음 삭제</button></>}
           <button disabled={groupSelected} onClick={() => convert(event.kind === 'rest')}>{event.kind === 'rest' ? 'C4 음표로 바꾸기' : eventPitches(event).length > 1 ? '화음 전체를 쉼표로 바꾸기' : '쉼표로 바꾸기'}</button>
@@ -400,16 +410,18 @@ export default function App2() {
       <div role="separator"/>
       <button role="menuitem" disabled={!pitchedSelection} onClick={() => menuAction(() => action({ type: 'pitch', amount: 1, chromatic: true }))}>반음 올리기</button>
       <button role="menuitem" disabled={!pitchedSelection} onClick={() => menuAction(() => action({ type: 'pitch', amount: -1, chromatic: true }))}>반음 내리기</button>
-      <div className="context-durations" role="group" aria-label="선택 길이 변경">{[1, 2, 4, 8, 16].map(denominator => {
+      <div className="context-durations" role="group" aria-label="선택 길이 변경">{[1, 2, 4, 8, 16, 32, 64].map(denominator => {
         const duration = DURATIONS.find(item => item.n === 1 && item.d === denominator)!
         return <button role="menuitem" key={denominator} disabled={groupSelected || !event} aria-label={`${durationName(duration)}음표로 변경`} onClick={() => menuAction(() => chooseDuration(duration))}>{durationName(duration)}</button>
       })}</div>
       <div className="context-accidentals" role="group" aria-label="선택 임시표">{([['♭', -1], ['♮', 0], ['♯', 1]] as const).map(([symbol, alter]) => <button key={alter} role="menuitem" aria-label={`선택 음에 ${symbol}`} disabled={groupSelected || event?.kind !== 'note' || current.part.instrument === 'drums'} onClick={() => menuAction(() => action({ type: 'accidental', alter }))}>{symbol}</button>)}</div>
+      <button role="menuitem" disabled={!canTie} onClick={() => menuAction(() => dispatch({ type: 'tie' }))}>{tied ? '다음 붙임줄 해제' : '다음 같은 음과 붙임줄'}</button>
+      <button role="menuitem" disabled={!canUntie} onClick={() => menuAction(() => dispatch({ type: 'clearTies' }))}>선택 음의 붙임줄 모두 해제</button>
       {scoreMenu.target.scope !== 'measure' && menuEvent?.kind === 'note' && eventPitches(menuEvent).length > 1 && <button role="menuitem" onClick={() => menuAction(() => { dispatch({ type: 'pick', selection: scoreMenu.target }); dispatch({ type: 'pick', selection: scoreMenu.target, extend: true }) })}>화음 전체 선택</button>}
       <div role="separator"/>
       <button role="menuitem" onClick={() => menuAction(() => change(addMeasure))}>끝에 마디 추가</button>
       <button role="menuitem" onClick={() => menuAction(() => openRight(true))}>선택 속성 열기</button>
     </ScoreContextMenu>}
-    {help && <dialog className="help-dialog" aria-label="Alpha 도움말" ref={element => { if (element && !element.open) element.showModal() }} onCancel={() => setHelp(false)}><div><button autoFocus onClick={() => setHelp(false)}>닫기</button><h2>PocketScore 사용 방법</h2><p>음표 입력 버튼을 켜고 음표 길이 기호를 고른 뒤 오선지를 누르세요. 옅은 미리보기가 실제 입력 위치를 보여줍니다. 음표를 하나 입력한 다음 화음 버튼을 켜고 다른 높이를 누르면 같은 박자에 음을 쌓습니다. 쉼표·점·임시표와 1~4성부도 도구 모음에서 선택합니다. 선택 버튼으로 돌아가 음표를 고르면 속성에서 길이와 음높이를 수정할 수 있습니다. 실행 취소·다시 실행과 재생도 화면 버튼으로 사용할 수 있습니다. 지원 길이는 16분~온음표와 점8분·점4분·점2분이며 자동 붙임줄은 아직 지원하지 않습니다.</p><p>악기·오선이 같은 마디·박자 위치에 정렬되는 총보입니다. 선택 모드의 Shift+클릭은 시간·성부 범위를, Ctrl+클릭은 구성음을 개별 선택합니다. 겹친 동음의 단일 선택은 입력 성부로 구분할 수 있습니다. 그룹에서는 음높이만 편집하며 길이는 변경할 수 없습니다. 선택 복사·붙여넣기는 상단 버튼이나 Ctrl/Cmd+C·V로 사용합니다. 오른쪽 클릭 또는 선택 작업 버튼으로 같은 도구를 엽니다. 여러 성부는 기존 아래 성부에 순서대로 붙여넣고, 부족한 성부는 건너뜁니다. 기존 구간은 덮어쓰고 필요한 뒤 마디만 추가하며 한 번의 실행 취소로 복원합니다.</p><p>MuseScore Studio 4.7.5의 UI·모듈 구조를 참고한 React/VexFlow 편집기입니다. MuseScore C++ 엔진·Qt UI를 실행하지 않습니다. MS Basic SF3를 실제 SoundFont 합성기로 재생합니다. 첫 재생 시 51.3 MB가 필요합니다.</p><details><summary>키보드 보조 조작</summary><p>N 입력 전환 · 3~7 길이 · A–G 음표 · Shift+A–G 화음 · 0 쉼표 · Esc 종료 · Space 재생 · Ctrl/Cmd+Z 취소 · Ctrl+Y 또는 Ctrl/Cmd+Shift+Z 다시 실행. 선택 모드에서는 Shift+클릭으로 범위를, Ctrl/Cmd+클릭으로 개별 음을 고릅니다.</p></details><p>현재: 다중 악기·성부·화음·템포·JSON·제한된 MusicXML. 다음: 연음표·붙임줄·이음줄·강약·스타카토/레가토·기보 반복, 사용자 SF2/SF3, Muse Sounds 공식 연동, 자동 복구·오프라인. 이 기능이 있는 MusicXML은 변환하지 않고 거부합니다.</p><p>Muse Sounds는 포함되지 않습니다. 실제 Galaxy Tab/S펜과 MuseScore GUI 검증은 별도 필요합니다.</p><p><a href={`${import.meta.env.BASE_URL}audio/MSBasic-LICENSE.md`} target="_blank" rel="noreferrer">MS Basic MIT 라이선스</a> · SpessaSynth 4.3.14 / core 4.3.22 / stb-vorbis 0.0.6: Apache-2.0 · VexFlow: MIT</p></div></dialog>}
+    {help && <dialog className="help-dialog" aria-label="Alpha 도움말" ref={element => { if (element && !element.open) element.showModal() }} onCancel={() => setHelp(false)}><div><button autoFocus onClick={() => setHelp(false)}>닫기</button><h2>PocketScore 사용 방법</h2><p>음표 입력 버튼을 켜고 음표 길이 기호를 고른 뒤 오선지를 누르세요. 옅은 미리보기가 실제 입력 위치를 보여줍니다. 음표를 하나 입력한 다음 화음 버튼을 켜고 다른 높이를 누르면 같은 박자에 음을 쌓습니다. 쉼표·점·임시표와 1~4성부도 도구 모음에서 선택합니다. 선택 버튼으로 돌아가 음표를 고르면 속성에서 길이와 음높이를 수정할 수 있습니다. 실행 취소·다시 실행과 재생도 화면 버튼으로 사용할 수 있습니다. 지원 길이는 64분~온음표와 점32분~점2분입니다. 같은 성부에 같은 음높이의 음표를 나란히 입력한 뒤 붙임줄 도구로 연결하세요. 연결된 음은 한 번의 지속음으로 재생되고 음높이도 함께 이동합니다. 길이를 바꾸려면 먼저 붙임줄을 해제하세요. 마디선을 넘는 새 음표 자동 분할과 점64분·점온음표는 아직 지원하지 않습니다.</p><p>악기·오선이 같은 마디·박자 위치에 정렬되는 총보입니다. 선택 모드의 Shift+클릭은 시간·성부 범위를, Ctrl+클릭은 구성음을 개별 선택합니다. 겹친 동음의 단일 선택은 입력 성부로 구분할 수 있습니다. 그룹에서는 음높이만 편집하며 길이는 변경할 수 없습니다. 선택 복사·붙여넣기는 상단 버튼이나 Ctrl/Cmd+C·V로 사용합니다. 오른쪽 클릭 또는 선택 작업 버튼으로 같은 도구를 엽니다. 여러 성부는 기존 아래 성부에 순서대로 붙여넣고, 부족한 성부는 건너뜁니다. 기존 구간은 덮어쓰고 필요한 뒤 마디만 추가하며 한 번의 실행 취소로 복원합니다.</p><p>MuseScore Studio 4.7.5의 UI·모듈 구조를 참고한 React/VexFlow 편집기입니다. MuseScore C++ 엔진·Qt UI를 실행하지 않습니다. MS Basic SF3를 실제 SoundFont 합성기로 재생합니다. 첫 재생 시 51.3 MB가 필요합니다.</p><details><summary>키보드 보조 조작</summary><p>N 입력 전환 · 1~7 길이 · A–G 음표 · Shift+A–G 화음 · 0 쉼표 · Esc 종료 · Space 재생 · Ctrl/Cmd+Z 취소 · Ctrl+Y 또는 Ctrl/Cmd+Shift+Z 다시 실행. 선택 모드에서는 Shift+클릭으로 범위를, Ctrl/Cmd+클릭으로 개별 음을 고릅니다.</p></details><p>현재: 다중 악기·성부·화음·64분음표·붙임줄·템포·JSON·제한된 MusicXML. 다음: 연음표·자동 붙임줄 입력·이음줄·강약·스타카토/레가토·기보 반복, 사용자 SF2/SF3, Muse Sounds 공식 연동, 자동 복구·오프라인. 이 기능이 있는 MusicXML은 변환하지 않고 거부합니다.</p><p>Muse Sounds는 포함되지 않습니다. 실제 Galaxy Tab/S펜과 MuseScore GUI 검증은 별도 필요합니다.</p><p><a href={`${import.meta.env.BASE_URL}audio/MSBasic-LICENSE.md`} target="_blank" rel="noreferrer">MS Basic MIT 라이선스</a> · SpessaSynth 4.3.14 / core 4.3.22 / stb-vorbis 0.0.6: Apache-2.0 · VexFlow: MIT</p></div></dialog>}
   </main>
 }

@@ -50,7 +50,7 @@ describe('fixed MusicXML compatibility corpus', () => {
   it.each(['invalid', 'tied', 'tuplet'])('diagnoses %s without changing an existing project', name => {
     const before = importMusicXML(fixture('ensemble'))
     const snapshot = serializeProject(before)
-    expect(() => importMusicXML(fixture(name))).toThrow(name === 'invalid' ? /올바른/ : /지원하지 않는 MusicXML/)
+    expect(() => importMusicXML(fixture(name))).toThrow(name === 'invalid' ? /올바른/ : name === 'tied' ? /붙임줄.*누락/ : /지원하지 않는 MusicXML/)
     expect(serializeProject(before)).toBe(snapshot)
   })
 })

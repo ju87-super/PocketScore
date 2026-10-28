@@ -103,7 +103,7 @@ test('rolls back pointercancel, capture loss and Escape without recording histor
 test('rejects lengthening through a note and keeps keyboard shortcuts out of toolbar controls', async ({ page }) => {
   await page.locator('[data-event-id="m1-e2"]').click()
   await page.getByRole('button', { name: '도구 막대 펼치기' }).click()
-  await page.getByRole('combobox', { name: '선택 길이' }).selectOption('5')
+  await page.getByRole('combobox', { name: '선택 길이' }).selectOption({ label: '2분' })
   await expect(page.getByText(/바로 뒤 쉼표의 길이가 부족/)).toBeVisible()
   await expect(page.getByTestId('selection-status')).toContainText('4분쉼표')
   await expect(page.getByRole('button', { name: '실행 취소' })).toBeDisabled()

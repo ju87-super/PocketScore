@@ -16,7 +16,7 @@ Status: **user override 2026-10-26: graphical controls first, keyboard optional*
 | Input | Behavior |
 | --- | --- |
 | N | Toggle note input at the selected event, or the active staff's first position |
-| 3 / 4 / 5 / 6 / 7 | 16th / eighth / quarter / half / whole duration, matching MuseScore's numbering |
+| 1 / 2 / 3 / 4 / 5 / 6 / 7 | 64th / 32nd / 16th / eighth / quarter / half / whole duration, matching MuseScore's numbering |
 | . | Toggle a supported single dot (eighth, quarter, half) |
 | A–G | Enter the named pitch at the next input position, choosing the nearest written octave |
 | Shift+A–G | Add a pitch above the last entered or singly selected chord; retain duration and next input position |
@@ -30,7 +30,8 @@ Status: **user override 2026-10-26: graphical controls first, keyboard optional*
 - The accidental buttons choose the next input alteration. Subsequent notes follow the shared step/octave accidental state in the measure and reset at the barline. Chords do not advance time.
 - Step-time input replaces exactly its chosen time span in one voice. Other voices/staves and content outside that span are preserved. This differs from resizing an existing event, which may consume only following rests.
 - At the end of the score, the next input atomically adds a measure to every staff along with the note. One Undo removes both.
-- 32nd/64th notes, double-whole notes, unsupported dots, automatic ties across barlines, tied fragments and tuplets remain unsupported. Reject them explicitly; never silently retime or approximate the score. Supported pitch range remains C2–C7 and chords contain at most eight distinct pitches.
+- 32nd/64th notes and rests, and single dots from 32nd through half notes, are supported. Basic ties connect existing adjacent equal pitches in the same voice, across barlines/systems too. Use the screen tie/untie tools. A tied logical tone transposes together, even when both endpoints are selected; copy retains only connections whose selected endpoints are both present. See [rhythm/tie report](score-rhythm-ties.md).
+- Double-whole notes, dotted 64th/whole notes, automatic barline/multi-fragment input, cross-voice/staff/percussion ties and tuplets remain unsupported. Reject them explicitly; never silently retime or approximate the score. Clear ties before resizing a linked event or changing meter with barline ties. Supported pitch range remains C2–C7 and chords contain at most eight distinct pitches.
 - MIDI entry, repitch/rhythm-only modes and the complete MuseScore shortcut set are future work. This implements the basic step-time workflow, not all MuseScore functions.
 
 ## Selection and existing-note editing

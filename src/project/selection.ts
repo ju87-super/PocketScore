@@ -3,6 +3,7 @@ import { compare, ZERO } from '../music/rational'
 import { midi, movePitch } from '../music/pitch'
 import { staffAt } from './model'
 import type { Project, ProjectSelection } from './model'
+import { rewriteTiedPitches } from '../music/ties'
 
 export type ScoreSelection = Readonly<{
   kind: 'single' | 'range' | 'list' | 'measure'
@@ -96,24 +97,13 @@ export function transposeSelection(project: Project, selection: ScoreSelection, 
   const anchorStaff = staffAt(project, anchor).staff
   const pitch = eventPitches(locate(anchorStaff.score, anchor).event)[anchor.pitchIndex ?? 0]
   const delta = chromatic ? amount : midi(movePitch(pitch, amount, false, anchorStaff.score.keySignature)) - midi(pitch)
-  const keys = new Set(selection.targets.map(targetKey))
   let changed = false
-  const parts = project.parts.map(part => part.instrument === 'drums' ? part : { ...part, staves: part.staves.map(staff => ({ ...staff, score: { ...staff.score, measures: staff.score.measures.map(measure => {
-    let touched = false
-    const voices = measure.voices.map(voice => ({ ...voice, events: voice.events.map(event => {
-      if (event.kind !== 'note') return event
-      let modified = false
-      const pitches = eventPitches(event).map((value, pitchIndex) => {
-        if (!keys.has(targetKey({ partId: part.id, staffId: staff.id, voiceId: voice.id, measureId: measure.id, eventId: event.id, pitchIndex }))) return value
-        modified = true
-        return movePitch(value, delta, true, staff.score.keySignature)
-      })
-      if (!modified) return event
-      if (new Set(pitches.map(midi)).size !== pitches.length) throw new Error('선택하지 않은 화음 구성음과 음높이가 겹칩니다. 변경을 취소했습니다.')
-      changed = true; touched = true
-      return { ...event, pitch: pitches[0], chord: pitches.slice(1) }
-    }) }))
-    return touched ? { ...measure, voices } : measure
-  }) } })) })
+  const parts = project.parts.map(part => part.instrument === 'drums' ? part : { ...part, staves: part.staves.map(staff => {
+    const targets = selection.targets.filter(target => target.staffId === staff.id)
+    if (!targets.length) return staff
+    const score = rewriteTiedPitches(staff.score, targets, pitch => movePitch(pitch, delta, true, staff.score.keySignature))
+    if (score === staff.score) return staff
+    changed = true; return { ...staff, score }
+  }) })
   return changed ? { ...project, parts } : project
 }

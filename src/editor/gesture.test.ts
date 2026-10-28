@@ -16,6 +16,6 @@ describe('gesture intent and snapping', () => {
     expect(draggedDuration(fraction(1, 4), -64)).toEqual(fraction(1, 8))
     expect(draggedDuration(fraction(1, 4), 32)).toEqual(fraction(3, 8))
     expect(draggedDuration(fraction(1, 4), 1000)).toEqual(fraction(1))
-    expect(draggedDuration(fraction(1, 4), -1000)).toEqual(fraction(1, 16))
+    expect(draggedDuration(fraction(1, 4), -1000)).toEqual(fraction(1, 64))
   })
 })

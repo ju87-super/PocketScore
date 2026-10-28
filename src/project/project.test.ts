@@ -141,14 +141,14 @@ describe('project persistence and MusicXML subset', () => {
     expect(reloaded.tempos).toEqual(project.tempos)
     expect(reloaded.parts.map(part => part.mixer)).toEqual(project.parts.map(part => part.mixer))
   })
-  it.each(['<tie type="start"/>', '<notations><slur type="start"/></notations>', '<time-modification/>', '<grace/>'])('rejects unsupported MusicXML instead of silently dropping %s', element => {
+  it.each(['<tie type="start"/>', '<notations><slur type="start"/></notations>', '<time-modification/>', '<grace/>'])('rejects incomplete ties and unsupported MusicXML instead of silently dropping %s', element => {
     const source = exportMusicXML(createProject()).replace('<note>', `<note>${element}`)
-    expect(() => importMusicXML(source)).toThrow('지원하지 않는 MusicXML')
+    expect(() => importMusicXML(source)).toThrow(element.startsWith('<tie') ? '붙임줄' : '지원하지 않는 MusicXML')
   })
   it('rejects external entities, malformed documents and structural time corruption', () => {
     expect(() => importMusicXML('<!DOCTYPE x [<!ENTITY e SYSTEM "file:///etc/passwd">]><score-partwise/>')).toThrow('DOCTYPE')
     expect(() => importMusicXML('<score-partwise>')).toThrow('올바른')
-    const source = exportMusicXML(createProject()).replace('<duration>4</duration>', '<duration>16</duration>')
+    const source = exportMusicXML(createProject()).replace('<duration>16</duration>', '<duration>64</duration>')
     expect(() => importMusicXML(source)).toThrow()
   })
 })
