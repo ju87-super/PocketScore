@@ -2,7 +2,7 @@ import { eventPitches, locate, resizeEvent, setAccidental, setKeySignature, setT
 import type { Pitch } from '../music/pitch'
 import type { Action } from '../editor/state'
 import type { Mixer, Project, ProjectSelection } from './model'
-import { allSelections, createProject, DRUMS, freshScoreEvents, staffAt, updateStaff, validateProject } from './model'
+import { allSelections, createProject, DRUMS, freshScoreEvents, reconcileProjectTies, staffAt, updateStaff, validateProject } from './model'
 import { isGroupSelection, navigationTargets, pickSelection, reconcileSelection, singleSelection, targetKey, transposeSelection, validTarget } from './selection'
 import type { ScoreSelection } from './selection'
 import { addEntryChord, beginEntry, createNoteEntry, entryPosition, followingPosition, letterPitch, reconcileEntry, writeEntry } from './noteEntry'
@@ -12,6 +12,7 @@ import { compare } from '../music/rational'
 import { midi } from '../music/pitch'
 import { copyScoreSelection, pasteScoreSelection } from './clipboard'
 import type { ScoreClipboard } from './clipboard'
+import { clearTies, toggleTie } from '../music/ties'
 
 export type Snapshot = Readonly<{ project: Project; selection: ProjectSelection | null; selected: ScoreSelection | null; entry: NoteEntry }>
 type Sound = Readonly<{ master: number; parts: Readonly<Record<string, Mixer>> }>
@@ -36,6 +37,7 @@ export type ProjectAction =
   | { type: 'deleteSelected' }
   | { type: 'copySelected' | 'copyMeasure' }
   | { type: 'paste'; target?: ProjectSelection }
+  | { type: 'tie' | 'clearTies' }
   | { type: 'undo' | 'redo' | 'cancel' }
 
 const captureSound = (project: Project, previous?: Sound): Sound => ({ master: project.masterVolume, parts: { ...previous?.parts, ...Object.fromEntries(project.parts.map(part => [part.id, part.mixer])) } })
@@ -68,6 +70,19 @@ export function projectReducer(state: ProjectState, input: ProjectAction): Proje
   if (action.type === 'cancel') return state.gesture ? { ...state, present: state.gesture.before, gesture: null, notice: '드래그를 취소했습니다.' } : state
   if (state.gesture && !['previewPitch', 'previewDuration', 'commit'].includes(action.type)) return state
   try {
+    if (input.type === 'tie' || input.type === 'clearTies') {
+      const { project, selection, selected } = state.present
+      if (!selection || !selected) throw new Error('먼저 음표를 선택하세요.')
+      if (input.type === 'tie' && isGroupSelection(selected)) throw new Error('붙임줄은 구성음을 하나 선택한 뒤 연결하세요.')
+      if (input.type === 'tie' && staffAt(project, selection).part.instrument === 'drums') throw new Error('타악기 붙임줄은 현재 지원하지 않습니다.')
+      let next = project
+      if (input.type === 'tie') next = updateStaff(project, selection.staffId, staff => ({ ...staff, score: toggleTie(staff.score, selection) }))
+      else for (const staff of project.parts.flatMap(part => part.staves)) {
+        const score = clearTies(staff.score, selected.targets.filter(target => target.staffId === staff.id))
+        if (score !== staff.score) next = updateStaff(next, staff.id, item => ({ ...item, score }))
+      }
+      return commit(state, { ...state.present, project: next })
+    }
     if (input.type === 'copySelected' || input.type === 'copyMeasure') {
       const selected = input.type === 'copyMeasure' && state.present.selection
         ? pickSelection(state.present.project, null, { ...state.present.selection, scope: 'measure' }) : state.present.selected
@@ -147,11 +162,12 @@ export function projectReducer(state: ProjectState, input: ProjectAction): Proje
           if (pitches.length === eventPitches(event).length) return event
           changed = true
           const base = { id: event.id, start: event.start, duration: event.duration }
-          return pitches.length ? { ...base, kind: 'note' as const, pitch: pitches[0], chord: pitches.slice(1) } : { ...base, kind: 'rest' as const }
+          const tieTo = event.kind === 'note' ? event.tieTo?.filter(value => pitches.some(pitch => midi(pitch) === value)) : undefined
+          return pitches.length ? { ...base, kind: 'note' as const, pitch: pitches[0], chord: pitches.slice(1), ...(tieTo?.length ? { tieTo } : {}) } : { ...base, kind: 'rest' as const }
         }) })) })) },
       })) })) }
       if (!changed) return state
-      return commit(state, { ...state.present, project })
+      return commit(state, { ...state.present, project: reconcileProjectTies(state.present.project, project) })
     }
     if (input.type === 'sound') {
       const project = input.change(state.present.project)

@@ -125,7 +125,7 @@ test('changes real measure capacity, preserves notes, rejects clipping and resto
   await expect(page.getByTestId('selection-status')).toContainText('F4 4분음표 · 시작 1/2')
   await page.getByRole('button', { name: '도구 막대 펼치기' }).click()
   // 12/8 supplies space for a half-note here; shrinking back would clip it.
-  await page.getByRole('combobox', { name: '선택 길이' }).selectOption('5')
+  await page.getByRole('combobox', { name: '선택 길이' }).selectOption({ label: '2분' })
   await page.getByRole('combobox', { name: '선택 길이' }).scrollIntoViewIfNeeded()
   const durationBox = await page.getByRole('combobox', { name: '선택 길이' }).boundingBox()
   const toolbarBox = await page.getByRole('complementary', { name: '악보 도구 막대' }).boundingBox()

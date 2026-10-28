@@ -105,7 +105,7 @@ describe('MuseScore-style step-time entry', () => {
     expect(result.entry.cursor?.start).toEqual(fraction(1, 4))
     expect(validateProject(result.project)).toEqual([])
   })
-  it('refuses fragments requiring unsupported ties instead of silently retriggering a held note', () => {
+  it('refuses unsupported automatic multi-fragment rewriting instead of silently retriggering a held note', () => {
     let project = createProject(false)
     const first = allSelections(project)[0]
     project = replaceEvent(project, first, event => ({ ...event, kind: 'note', pitch: { step: 'C', octave: 4, alter: 0 } }))
@@ -148,7 +148,9 @@ describe('MuseScore-style step-time entry', () => {
   it('toggles supported dotted values and explicitly rejects unsupported ones', () => {
     expect(dottedDuration(fraction(1, 4))).toEqual(fraction(3, 8))
     expect(dottedDuration(fraction(3, 8))).toEqual(fraction(1, 4))
-    expect(() => dottedDuration(fraction(1, 16))).toThrow('점음표')
+    expect(dottedDuration(fraction(1, 16))).toEqual(fraction(3, 32))
+    expect(dottedDuration(fraction(1, 32))).toEqual(fraction(3, 64))
+    expect(() => dottedDuration(fraction(1, 64))).toThrow('점음표')
   })
   it('keeps the graphical chord tool preference out of score history and preserves redo', () => {
     const s = session(); s.send({ type: 'entryMode', enabled: true }); s.send({ type: 'entryWrite', letter: 'C' })

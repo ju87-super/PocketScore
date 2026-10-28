@@ -272,3 +272,4 @@
 .score-context-menu > [role=separator] { height: 1px; margin: 4px; background: #d7dce3; }
 .context-durations, .context-accidentals { display: flex; gap: 2px; padding: 4px; }
 .studio .context-durations button, .studio .context-accidentals button { flex: 1; min-width: 44px; padding: 4px 2px; }
+.context-durations { display: grid; grid-template-columns: repeat(4, minmax(44px, 1fr)); }

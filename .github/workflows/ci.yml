@@ -159,7 +159,7 @@ jobs:
           import { appendFileSync } from 'node:fs';
           const jobs = JSON.parse(process.env.RESULTS);
           const rows = Object.entries(jobs).map(([name, job]) => `| ${name} | ${job.result} |`);
-          appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## Required CI\n\n| Job | Result |\n|---|---|\n${rows.join('\n')}\n\nTuplet/tie performance is not implemented; rejection fixtures do not prove playback support. Actual Galaxy Tab and MuseScore GUI checks remain manual.\n`);
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## Required CI\n\n| Job | Result |\n|---|---|\n${rows.join('\n')}\n\nTuplet performance and automatic tied-note splitting are not implemented. Basic adjacent same-voice ties have dedicated model, playback and compatibility tests. Actual Galaxy Tab and MuseScore GUI checks remain manual.\n`);
           const expected = ['quality', 'unit', 'browser', 'audio'];
           if (Object.keys(jobs).length !== expected.length || expected.some(name => jobs[name]?.result !== 'success')) process.exit(1);
           JS

@@ -4,13 +4,15 @@ import { DURATIONS, eventPitches, locate } from '../music/score'
 import type { RhythmEvent } from '../music/score'
 import type { Pitch } from '../music/pitch'
 import { measureDuration } from '../music/settings'
-import { primaryScore, rests, staffAt, uid, validateProject } from './model'
+import { primaryScore, reconcileProjectTies, rests, staffAt, uid, validateProject } from './model'
 import type { Project, ProjectSelection } from './model'
 import { validTarget, voiceRows } from './selection'
 import type { ScoreSelection } from './selection'
+import { tieLinks } from '../music/ties'
+import { midi } from '../music/pitch'
 import { addMeasure } from './structure'
 
-export type ClipboardEvent = Readonly<{ offset: Rational; duration: Rational; pitches: readonly Pitch[] }>
+export type ClipboardEvent = Readonly<{ offset: Rational; duration: Rational; pitches: readonly Pitch[]; tieTo?: readonly number[] }>
 export type ScoreClipboard = Readonly<{ span: Rational; rows: readonly Readonly<{ events: readonly ClipboardEvent[] }>[] }>
 const rowKey = (row: { staffId: string; voiceId: string }) => JSON.stringify([row.staffId, row.voiceId])
 const barStart = (capacity: Rational, index: number) => fraction(capacity.n * index, capacity.d)
@@ -32,12 +34,17 @@ export function copyScoreSelection(project: Project, selected: ScoreSelection | 
     item.pitches.add(target.pitchIndex ?? 0); captured.set(key, item)
   }
   const items = [...captured.values()]
+  const selectedPitches = new Map(items.map(item => [item.event.id, new Set(eventPitches(item.event).filter((_, i) => item.pitches.has(i)).map(midi))]))
+  const ties = new Map<string, number[]>()
+  for (const staff of project.parts.flatMap(part => part.staves)) for (const link of tieLinks(staff.score)) if (selectedPitches.get(link.from.event.id)?.has(link.midi) && selectedPitches.get(link.to.event.id)?.has(link.midi))
+    ties.set(link.from.event.id, [...(ties.get(link.from.event.id) ?? []), link.midi])
   const start = items.reduce((low, item) => min(low, selected.kind === 'measure' ? barStart(capacity, item.measure) : item.start), items[0].start)
   const end = items.reduce((high, item) => max(high, selected.kind === 'measure' ? barStart(capacity, item.measure + 1) : add(item.start, item.event.duration)), start)
   const rows = voiceRows(project).flatMap(row => {
     const events = items.filter(item => item.row === rowKey(row)).sort((a, b) => compare(a.start, b.start)).map(item => ({
       offset: subtract(item.start, start), duration: cloneFraction(item.event.duration),
       pitches: eventPitches(item.event).filter((_, i) => item.pitches.has(i)).map(pitch => ({ ...pitch })),
+      ...(ties.has(item.event.id) ? { tieTo: [...ties.get(item.event.id)!] } : {}),
     }))
     return events.length ? [{ events }] : []
   })
@@ -60,7 +67,9 @@ function fragment(event: RhythmEvent, start: Rational, end: Rational): RhythmEve
   if (equal(duration, ZERO)) return []
   if (event.kind === 'rest') return rests(duration).map(item => ({ ...item, start: add(start, item.start) }))
   if (!DURATIONS.some(item => equal(item, duration))) throw new Error('붙여넣기 경계의 기존 음표를 보존하려면 붙임줄이 필요합니다. 변경을 취소했습니다.')
-  return [{ ...event, id: uid(), start, duration }]
+  const next = { ...event, id: equal(start, event.start) ? event.id : uid(), start, duration }
+  if (!equal(end, add(event.start, event.duration))) delete next.tieTo
+  return [next]
 }
 
 export type PasteResult = Readonly<{ project: Project; selected: ScoreSelection; selection: ProjectSelection; addedMeasures: number; skippedRows: number }>
@@ -99,7 +108,7 @@ export function pasteScoreSelection(original: Project, clipboard: ScoreClipboard
           if (compare(a, base) < 0 || compare(b, limit) > 0) throw new Error('붙여넣을 음표가 마디선을 넘어 붙임줄이 필요합니다. 변경을 취소했습니다.')
           if (!DURATIONS.some(value => equal(value, duration))) throw new Error('지원하지 않는 음표 길이입니다.')
           const pitches = item.pitches.map(pitch => ({ ...pitch }))
-          inserted.push({ id: uid(), start: local, duration: cloneFraction(duration), kind: 'note', pitch: pitches[0], ...(pitches.length > 1 ? { chord: pitches.slice(1) } : {}) })
+          inserted.push({ id: uid(), start: local, duration: cloneFraction(duration), kind: 'note', pitch: pitches[0], ...(pitches.length > 1 ? { chord: pitches.slice(1) } : {}), ...(item.tieTo?.length ? { tieTo: [...item.tieTo] } : {}) })
         } else inserted.push(...rests(duration).map(event => ({ ...event, start: add(local, event.start) })))
       }
       const before: RhythmEvent[] = [], after: RhythmEvent[] = []
@@ -132,6 +141,7 @@ export function pasteScoreSelection(original: Project, clipboard: ScoreClipboard
     })
     return staves.every((staff, i) => staff === part.staves[i]) ? part : { ...part, staves }
   }) }
+  project = reconcileProjectTies(original, project)
   const errors = validateProject(project)
   if (errors.length) throw new Error(`붙여넣기를 취소했습니다: ${errors.join(' ')}`)
   if (!targets.length) throw new Error('붙여넣을 요소가 없습니다.')

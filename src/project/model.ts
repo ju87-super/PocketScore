@@ -5,6 +5,7 @@ import type { Rational } from '../music/rational'
 import { midi } from '../music/pitch'
 import type { Pitch } from '../music/pitch'
 import { measureDuration } from '../music/settings'
+import { reconcileTieEdits } from '../music/ties'
 
 export const INSTRUMENTS = {
   piano: { name: '피아노', program: 0, clef: 'treble' },
@@ -43,7 +44,7 @@ export function rests(amount: Rational): RhythmEvent[] {
     result.push({ id: uid(), kind: 'rest', start: ZERO, duration })
     remaining = subtract(remaining, duration)
   }
-  if (!equal(remaining, ZERO)) throw new Error('16분음표 격자로 표현할 수 없는 길이입니다.')
+  if (!equal(remaining, ZERO)) throw new Error('64분음표 격자로 표현할 수 없는 길이입니다.')
   return retime(result)
 }
 
@@ -83,7 +84,26 @@ export function staffAt(project: Project, selection: Pick<ProjectSelection, 'par
   return { part, staff }
 }
 export function updateStaff(project: Project, staffId: string, transform: (staff: Staff) => Staff): Project {
-  return { ...project, parts: project.parts.map(part => ({ ...part, staves: part.staves.map(staff => staff.id === staffId ? transform(staff) : staff) })) }
+  return { ...project, parts: project.parts.map(part => ({ ...part, staves: part.staves.map(staff => {
+    if (staff.id !== staffId) return staff
+    const next = transform(staff)
+    return { ...next, score: reconcileTieEdits(staff.score, next.score) }
+  }) })) }
+}
+export function reconcileProjectTies(before: Project, after: Project): Project {
+  if (before === after) return after
+  let changed = false
+  const parts = after.parts.map(part => {
+    let touched = false
+    const staves = part.staves.map(staff => {
+      const previous = before.parts.find(item => item.id === part.id)?.staves.find(item => item.id === staff.id)
+      const score = previous ? reconcileTieEdits(previous.score, staff.score) : staff.score
+      if (score === staff.score) return staff
+      changed = true; touched = true; return { ...staff, score }
+    })
+    return touched ? { ...part, staves } : part
+  })
+  return changed ? { ...after, parts } : after
 }
 export function allSelections(project: Project): ProjectSelection[] {
   return project.parts.flatMap(part => part.staves.flatMap(staff => staff.score.measures.flatMap(measure => measure.voices.flatMap(voice => voice.events.map(event => ({ partId: part.id, staffId: staff.id, measureId: measure.id, voiceId: voice.id, eventId: event.id }))))))
@@ -126,6 +146,7 @@ export function validateProject(project: Project): string[] {
           identity(event.id)
           totalEvents++
           const pitches = eventPitches(event)
+          if (part.instrument === 'drums' && event.kind === 'note' && event.tieTo?.length) errors.push('타악기 붙임줄은 현재 지원하지 않습니다.')
           if (pitches.length > 8 || new Set(pitches.map(midi)).size !== pitches.length) errors.push('화음은 서로 다른 1–8개의 음이어야 합니다.')
           if (part.instrument === 'drums' && pitches.some(pitch => !DRUMS.some(drum => drum.midi === midi(pitch)))) errors.push('지원하지 않는 드럼 음입니다. 킥·스네어·하이햇을 선택하세요.')
         }

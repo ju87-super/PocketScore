@@ -38,23 +38,42 @@ export function compileTimeline(project: Project): Timeline {
     const channel = part.instrument === 'drums' ? 9 : melodic < 9 ? melodic++ : ++melodic
     channels.set(part.id, channel)
     for (const staff of part.staves) {
+      const held = new Map<string, PlayedNote>()
       let measureStart = ZERO
       staff.score.measures.forEach((measure, index) => {
         const seconds = (value: Rational) => measureTimes[index] + value.n / value.d * 4 * 60 / bpms[index]
         for (const voice of measure.voices) for (const event of voice.events) {
           const selection = { partId: part.id, staffId: staff.id, measureId: measure.id, voiceId: voice.id, eventId: event.id }
           events.push({ selection, start: seconds(event.start), end: seconds(add(event.start, event.duration)), measure: index })
-          if (!part.mixer.mute && (!solo || part.mixer.solo)) for (const pitch of eventPitches(event)) notes.push({
-            partId: part.id, channel, midi: midi(pitch), velocity: 90,
-            start: seconds(event.start), end: seconds(add(event.start, event.duration)),
-            startTick: ticks(add(measureStart, event.start)), endTick: ticks(add(measureStart, add(event.start, event.duration))),
-          })
+          if (!part.mixer.mute && (!solo || part.mixer.solo)) for (const pitch of eventPitches(event)) {
+            const value = midi(pitch), key = JSON.stringify([voice.id, value]), previous = held.get(key)
+            const note: PlayedNote = { partId: part.id, channel, midi: value, velocity: 90,
+              start: seconds(event.start), end: seconds(add(event.start, event.duration)),
+              startTick: ticks(add(measureStart, event.start)), endTick: ticks(add(measureStart, add(event.start, event.duration))),
+            }
+            const continuing = previous && previous.endTick === note.startTick
+            if (continuing) { previous.end = note.end; previous.endTick = note.endTick }
+            else notes.push(note)
+            if (event.kind === 'note' && event.tieTo?.includes(value)) held.set(key, continuing ? previous : note)
+            else held.delete(key)
+          }
         }
         measureStart = add(measureStart, length)
       })
     }
   }
   return { notes: notes.sort((a, b) => a.start - b.start), events, measureTimes, duration, totalTicks: ticks(length) * measureTimes.length, channels }
+}
+
+// Sequencer seeks restore controllers but skip prior note-ons. Resume only
+// already-active melodic keys; exact-boundary attacks remain MIDI events.
+export function activeMelodicNotes(timeline: Timeline | null, position: number): PlayedNote[] {
+  const active = new Map<string, PlayedNote>()
+  for (const note of timeline?.notes ?? []) if (note.channel !== 9 && note.start < position && note.end > position) {
+    const key = JSON.stringify([note.channel, note.midi]), previous = active.get(key)
+    if (!previous || note.end > previous.end) active.set(key, note)
+  }
+  return [...active.values()]
 }
 
 const variable = (value: number): number[] => {

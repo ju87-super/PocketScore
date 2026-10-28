@@ -8,16 +8,18 @@ import { measureDuration, meterParts, TIME_SIGNATURES } from '../music/settings'
 import type { TimeSignature } from '../music/settings'
 import { DRUMS, primaryScore, rests, uid, validateProject } from '../project/model'
 import type { Clef, Instrument, Part, Project, Staff } from '../project/model'
+import { tieLinks } from '../music/ties'
 
 const escape = (text: string) => text.replace(/[&<>"']/g, value => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[value]!)
-const units = (value: Rational) => value.n * 16 / value.d
-const typeNames: Record<number, string> = { 1: 'whole', 2: 'half', 4: 'quarter', 8: 'eighth', 16: '16th' }
+const units = (value: Rational) => value.n * 64 / value.d
+const typeNames: Record<number, string> = { 1: 'whole', 2: 'half', 4: 'quarter', 8: 'eighth', 16: '16th', 32: '32nd', 64: '64th' }
 
 export function exportMusicXML(project: Project): string {
   const errors = validateProject(project)
   if (errors.length) throw new Error(errors.join(' '))
   const score = primaryScore(project)
   const meter = meterParts(score.timeSignature)
+  const stops = new Set(project.parts.flatMap(part => part.staves.flatMap(staff => tieLinks(staff.score).map(link => JSON.stringify([link.to.event.id, link.midi])))))
   const partList = project.parts.map((part, index) => {
     const id = `P${index + 1}`
     const instruments = part.instrument === 'drums' ? DRUMS.map(drum => `<score-instrument id="${id}-D${drum.midi}"><instrument-name>${escape(drum.name)}</instrument-name></score-instrument>`).join('')
@@ -27,7 +29,7 @@ export function exportMusicXML(project: Project): string {
   }).join('')
   const parts = project.parts.map((part, partIndex) => `<part id="P${partIndex + 1}">${score.measures.map((_, measureIndex) => {
     let body = ''
-    if (measureIndex === 0) body += `<attributes><divisions>4</divisions><key><fifths>${score.keySignature}</fifths></key><time><beats>${meter.beats}</beats><beat-type>${meter.beatValue}</beat-type></time><staves>${part.staves.length}</staves>${part.staves.map((staff, i) => `<clef number="${i + 1}"><sign>${staff.clef === 'bass' ? 'F' : staff.clef === 'percussion' ? 'percussion' : 'G'}</sign>${staff.clef === 'percussion' ? '' : `<line>${staff.clef === 'bass' ? 4 : 2}</line>`}</clef>`).join('')}</attributes>`
+    if (measureIndex === 0) body += `<attributes><divisions>16</divisions><key><fifths>${score.keySignature}</fifths></key><time><beats>${meter.beats}</beats><beat-type>${meter.beatValue}</beat-type></time><staves>${part.staves.length}</staves>${part.staves.map((staff, i) => `<clef number="${i + 1}"><sign>${staff.clef === 'bass' ? 'F' : staff.clef === 'percussion' ? 'percussion' : 'G'}</sign>${staff.clef === 'percussion' ? '' : `<line>${staff.clef === 'bass' ? 4 : 2}</line>`}</clef>`).join('')}</attributes>`
     const tempo = project.tempos.find(item => item.measure === measureIndex)
     if (tempo) body += `<direction><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>${tempo.bpm}</per-minute></metronome></direction-type><sound tempo="${tempo.bpm}"/></direction>`
     let stream = 0
@@ -41,7 +43,10 @@ export function exportMusicXML(project: Project): string {
           const type = typeNames[event.duration.d / (dotted ? 2 : 1)]
           const drum = pitch && part.instrument === 'drums' ? DRUMS.find(item => item.midi === midi(pitch)) : undefined
           const display = drum?.key.split('/')
-          body += `<note>${toneIndex ? '<chord/>' : ''}${!pitch ? '<rest/>' : drum ? `<unpitched><display-step>${display![0].toUpperCase()}</display-step><display-octave>${display![1]}</display-octave></unpitched>` : `<pitch><step>${pitch.step}</step><alter>${pitch.alter}</alter><octave>${pitch.octave}</octave></pitch>`}<duration>${units(event.duration)}</duration>${pitch ? `<instrument id="P${partIndex + 1}-${drum ? `D${drum.midi}` : 'I'}"/>` : ''}<voice>${staffIndex * 4 + voiceIndex + 1}</voice><type>${type}</type>${dotted ? '<dot/>' : ''}<staff>${staffIndex + 1}</staff></note>`
+          const tieTypes = pitch ? [...(stops.has(JSON.stringify([event.id, midi(pitch)])) ? ['stop'] : []), ...(event.kind === 'note' && event.tieTo?.includes(midi(pitch)) ? ['start'] : [])] : []
+          const ties = tieTypes.map(type => `<tie type="${type}"/>`).join('')
+          const notations = tieTypes.length ? `<notations>${tieTypes.map(type => `<tied type="${type}"/>`).join('')}</notations>` : ''
+          body += `<note>${toneIndex ? '<chord/>' : ''}${!pitch ? '<rest/>' : drum ? `<unpitched><display-step>${display![0].toUpperCase()}</display-step><display-octave>${display![1]}</display-octave></unpitched>` : `<pitch><step>${pitch.step}</step><alter>${pitch.alter}</alter><octave>${pitch.octave}</octave></pitch>`}<duration>${units(event.duration)}</duration>${ties}${pitch ? `<instrument id="P${partIndex + 1}-${drum ? `D${drum.midi}` : 'I'}"/>` : ''}<voice>${staffIndex * 4 + voiceIndex + 1}</voice><type>${type}</type>${dotted ? '<dot/>' : ''}<staff>${staffIndex + 1}</staff>${notations}</note>`
         })
       })
     }))
@@ -61,12 +66,12 @@ const numeric = (element: Element, name: string, fallback?: number) => {
 }
 
 // Deliberately strict Alpha subset: anything outside this vocabulary is rejected
-// before constructing a project, including ties, tuplets and ornamental notation.
+// before constructing a project, including tuplets and ornamental notation.
 export function importMusicXML(source: string): Project {
   if (source.length > 5_000_000 || /<!DOCTYPE|<!ENTITY/i.test(source)) throw new Error('외부 엔티티·DOCTYPE 또는 5 MB가 넘는 MusicXML은 지원하지 않습니다.')
   const xml = new DOMParser().parseFromString(source, 'application/xml')
   if (xml.querySelector('parsererror') || xml.documentElement.tagName !== 'score-partwise') throw new Error('올바른 partwise MusicXML이 아닙니다.')
-  const allowed = new Set('score-partwise work work-title part-list score-part part-name score-instrument instrument-name midi-instrument midi-channel midi-program midi-unpitched volume pan part measure attributes divisions key fifths time beats beat-type staves clef sign line direction direction-type metronome beat-unit per-minute sound note chord rest pitch step alter octave unpitched display-step display-octave duration instrument voice type dot staff backup forward'.split(' '))
+  const allowed = new Set('score-partwise work work-title part-list score-part part-name score-instrument instrument-name midi-instrument midi-channel midi-program midi-unpitched volume pan part measure attributes divisions key fifths time beats beat-type staves clef sign line direction direction-type metronome beat-unit per-minute sound note chord rest pitch step alter octave unpitched display-step display-octave duration instrument voice type dot staff backup forward tie notations tied'.split(' '))
   const hierarchy: Record<string, string[]> = {
     'score-partwise': ['work', 'part-list', 'part'], work: ['work-title'], 'part-list': ['score-part'],
     'score-part': ['part-name', 'score-instrument', 'midi-instrument'], 'score-instrument': ['instrument-name'],
@@ -74,10 +79,10 @@ export function importMusicXML(source: string): Project {
     part: ['measure'], measure: ['attributes', 'direction', 'note', 'backup', 'forward'],
     attributes: ['divisions', 'key', 'time', 'staves', 'clef'], key: ['fifths'], time: ['beats', 'beat-type'], clef: ['sign', 'line'],
     direction: ['direction-type', 'sound'], 'direction-type': ['metronome'], metronome: ['beat-unit', 'per-minute'],
-    note: ['chord', 'rest', 'pitch', 'unpitched', 'duration', 'instrument', 'voice', 'type', 'dot', 'staff'],
+    note: ['chord', 'rest', 'pitch', 'unpitched', 'duration', 'tie', 'instrument', 'voice', 'type', 'dot', 'staff', 'notations'], notations: ['tied'],
     pitch: ['step', 'alter', 'octave'], unpitched: ['display-step', 'display-octave'], backup: ['duration'], forward: ['duration'],
   }
-  const multiple = new Set(['score-partwise:part', 'part-list:score-part', 'score-part:score-instrument', 'score-part:midi-instrument', 'part:measure', 'measure:attributes', 'measure:direction', 'measure:note', 'measure:backup', 'measure:forward', 'attributes:clef'])
+  const multiple = new Set(['score-partwise:part', 'part-list:score-part', 'score-part:score-instrument', 'score-part:midi-instrument', 'part:measure', 'measure:attributes', 'measure:direction', 'measure:note', 'measure:backup', 'measure:forward', 'attributes:clef', 'note:tie', 'notations:tied'])
   for (const element of [...xml.querySelectorAll('*')]) {
     if (!allowed.has(element.tagName)) throw new Error(`Alpha에서 지원하지 않는 MusicXML 요소: ${element.tagName}. 파일을 변경하지 않았습니다.`)
     const seen = new Set<string>()
@@ -85,7 +90,7 @@ export function importMusicXML(source: string): Project {
       if (!(hierarchy[element.tagName] ?? []).includes(item.tagName) || (seen.has(item.tagName) && !multiple.has(`${element.tagName}:${item.tagName}`))) throw new Error(`지원하지 않는 MusicXML 구조: ${element.tagName}/${item.tagName}`)
       seen.add(item.tagName)
     }
-    const attributes = element.tagName === 'score-partwise' ? ['version'] : ['part', 'score-part', 'score-instrument', 'midi-instrument', 'instrument'].includes(element.tagName) ? ['id'] : ['measure', 'clef'].includes(element.tagName) ? ['number'] : element.tagName === 'sound' ? ['tempo'] : []
+    const attributes = element.tagName === 'score-partwise' ? ['version'] : ['part', 'score-part', 'score-instrument', 'midi-instrument', 'instrument'].includes(element.tagName) ? ['id'] : ['measure', 'clef'].includes(element.tagName) ? ['number'] : element.tagName === 'sound' ? ['tempo'] : ['tie', 'tied'].includes(element.tagName) ? ['type'] : []
     for (const attribute of [...element.attributes]) if (!attributes.includes(attribute.name)) throw new Error(`지원하지 않는 MusicXML 속성: ${attribute.name}`)
   }
   const root = xml.documentElement
@@ -127,6 +132,7 @@ export function importMusicXML(source: string): Project {
     if (!Number.isSafeInteger(divisions) || divisions <= 0 || divisions > 10080) throw new Error('잘못된 MusicXML divisions')
     const voiceIds = new Map<string, string>()
     const streams: Map<string, RhythmEvent[]>[] = []
+    const openTies = new Map<string, Rational>()
     const duration = measureDuration(time)
     measures.forEach((measure, measureIndex) => {
       const current = new Map<string, RhythmEvent[]>()
@@ -170,12 +176,28 @@ export function importMusicXML(source: string): Project {
             if (!drum) throw new Error('지원하지 않는 타악기 음입니다.')
             pitch = drum.pitch
           }
+          const sounding = children(element, 'tie').map(tie => tie.getAttribute('type'))
+          const visible = child(element, 'notations') ? children(child(element, 'notations')!, 'tied').map(tie => tie.getAttribute('type')) : []
+          for (const types of [sounding, visible]) if (types.some(type => type !== 'start' && type !== 'stop') || new Set(types).size !== types.length) throw new Error('지원하지 않거나 중복된 MusicXML 붙임줄입니다.')
+          if (sounding.length && visible.length && (sounding.length !== visible.length || sounding.some(type => !visible.includes(type)))) throw new Error('MusicXML 재생 붙임줄과 표시 붙임줄이 일치하지 않습니다.')
+          const types = sounding.length ? sounding : visible
+          if (types.length && (!pitch || isDrums)) throw new Error('쉼표·타악기 붙임줄은 지원하지 않습니다.')
+          const start = child(element, 'chord') ? events.at(-1)?.start : cursor
+          if (!start) throw new Error('붙임줄의 선행 화음이 없습니다.')
+          const absolute = add(fraction(duration.n * measureIndex, duration.d), start)
+          const tieKey = JSON.stringify([streamKey, pitch ? midi(pitch) : null])
+          if (types.includes('stop')) {
+            const end = openTies.get(tieKey)
+            if (!end || !equal(end, absolute)) throw new Error('MusicXML 붙임줄의 시작·끝 또는 음높이·성부가 일치하지 않습니다.')
+            openTies.delete(tieKey)
+          } else if (openTies.has(tieKey)) throw new Error('MusicXML 붙임줄의 끝 표시가 누락되었습니다.')
+          if (types.includes('start')) openTies.set(tieKey, add(absolute, length))
           if (child(element, 'chord')) {
             const previous = events.at(-1)
             if (!pitch || previous?.kind !== 'note' || !equal(previous.duration, length) || !equal(add(previous.start, previous.duration), cursor) || element.previousElementSibling?.tagName !== 'note') throw new Error('화음의 길이 또는 선행 음표가 올바르지 않습니다.')
-            events[events.length - 1] = { ...previous, chord: [...(previous.chord ?? []), pitch] }
+            events[events.length - 1] = { ...previous, chord: [...(previous.chord ?? []), pitch], ...(types.includes('start') ? { tieTo: [...(previous.tieTo ?? []), midi(pitch)] } : {}) }
           } else {
-            events.push({ id: uid(), start: cursor, duration: length, ...(pitch ? { kind: 'note', pitch } : { kind: 'rest' }) })
+            events.push({ id: uid(), start: cursor, duration: length, ...(pitch ? { kind: 'note', pitch, ...(types.includes('start') ? { tieTo: [midi(pitch)] } : {}) } : { kind: 'rest' }) })
             cursor = add(cursor, length)
           }
           current.set(streamKey, events)
@@ -184,6 +206,7 @@ export function importMusicXML(source: string): Project {
       }
       streams.push(current)
     })
+    if (openTies.size) throw new Error('MusicXML 붙임줄의 끝 표시가 누락되었습니다.')
     const staves: Staff[] = clefs.map((clef, index) => {
       const keys = [...voiceIds.keys()].filter(key => key.startsWith(`${index}:`))
       if (!keys.length || keys.length > 4) throw new Error('오선지당 1–4개 성부가 필요합니다.')

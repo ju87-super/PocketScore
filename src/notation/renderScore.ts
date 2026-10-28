@@ -4,9 +4,11 @@ import type { Measure, Score, Selection } from '../music/score'
 import { measureAccidentals } from '../music/accidentals'
 import { KEY_LABELS, KEY_NAMES, meterParts } from '../music/settings'
 import { midi } from '../music/pitch'
+import { tiedContinuations, tieLinks } from '../music/ties'
+import { drawTies } from './ties'
 
-type Target = { note: SVGElement | undefined; hit: SVGRectElement }
-type RenderedMeasure = { model: Measure; group: SVGGElement; targets: Map<string, Target> }
+type Target = { note: SVGElement | undefined; hit: SVGRectElement; staveNote: StaveNote }
+type RenderedMeasure = { model: Measure; incoming: string; group: SVGGElement; targets: Map<string, Target> }
 type RenderedScore = {
   renderer: Renderer; svg: SVGSVGElement; layout: string; score: Score
   measures: RenderedMeasure[]; targets: Map<string, Target>; selected: string | null
@@ -48,9 +50,15 @@ export function renderScore(container: HTMLDivElement, score: Score, selection: 
 
   const context = cache.renderer.getContext()
   const { beats, beatValue } = meterParts(score.timeSignature)
+  const continuations = tiedContinuations(score)
+  let repainted = false
   score.measures.forEach((measure, measureIndex) => {
     const previous = cache.measures[measureIndex]
-    if (previous?.model === measure) return
+    const incoming = JSON.stringify(measure.voices.flatMap(voice => voice.events.flatMap(event => eventPitches(event).flatMap((_, i) => {
+      const key = i ? `${event.id}:${i}` : event.id; return continuations.has(key) ? [key] : []
+    }))))
+    if (previous?.model === measure && previous.incoming === incoming) return
+    repainted = true
     context.setFont('system-ui', 12)
     const group: SVGGElement = context.openGroup('measure')
     group.setAttribute('data-rendered-measure', measure.id)
@@ -78,12 +86,12 @@ export function renderScore(container: HTMLDivElement, score: Score, selection: 
     const staveElement = stave.getSVGElement()
     staveElement?.setAttribute('data-stave-measure', measure.id)
     staveElement?.setAttribute('data-system-start', String(systemStart))
-    const accidentals = measureAccidentals(measure, score.keySignature)
+    const accidentals = measureAccidentals(measure, score.keySignature, continuations)
     const rendered = measure.voices.map(voice => {
       const notes = voice.events.map(event => {
         const dotted = event.duration.n === 3
         const denominator = event.duration.d / (dotted ? 2 : 1)
-        const durations: Record<number, string> = { 1: 'w', 2: 'h', 4: 'q', 8: '8', 16: '16' }
+        const durations: Record<number, string> = { 1: 'w', 2: 'h', 4: 'q', 8: '8', 16: '16', 32: '32', 64: '64' }
         const keys = eventPitches(event).map(pitch => clef === 'percussion'
           ? ({ 36: 'f/4', 38: 'c/5', 42: 'g/5' }[midi(pitch)] ?? 'b/4')
           : `${pitch.step.toLowerCase()}${pitch.alter === 1 ? '#' : pitch.alter === -1 ? 'b' : ''}/${pitch.octave}`)
@@ -123,7 +131,7 @@ export function renderScore(container: HTMLDivElement, score: Score, selection: 
         hit.dataset.voiceId = model.id
         hit.dataset.eventId = event.id
         group.append(hit)
-        targets.set(event.id, { note: element, hit })
+        targets.set(event.id, { note: element, hit, staveNote: note })
       })
     })
     context.closeGroup()
@@ -133,8 +141,9 @@ export function renderScore(container: HTMLDivElement, score: Score, selection: 
       previous.targets.forEach((_, id) => cache.targets.delete(id))
     }
     targets.forEach((target, id) => cache.targets.set(id, target))
-    cache.measures[measureIndex] = { model: measure, group, targets }
+    cache.measures[measureIndex] = { model: measure, incoming, group, targets }
   })
+  if (repainted || cache.score !== score) drawTies(tieLinks(score), new Map(cache.measures.flatMap((bar, i) => [...bar.targets].map(([id, target]) => [id, { note: target.staveNote, renderer: cache.renderer, system: Math.floor(i / columns), voiceCount: bar.model.voices.length }]))))
   const old = cache.targets.get(cache.selected ?? '')
   old?.hit.classList.remove('selected')
   old?.hit.setAttribute('aria-pressed', 'false')
