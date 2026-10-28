@@ -7,7 +7,7 @@ export const suites = {
     [process.execPath, 'tools/ci/inventory.mjs'],
     [process.execPath, '--test', 'tools/ci/contracts.test.mjs', 'tools/musescore-web/probe.test.mjs', 'tools/musescore-web/build-report.test.mjs', 'tools/musescore-web/isolate-commonjs.test.mjs'],
     ['npm', 'run', 'typecheck'], ['npm', 'run', 'lint'], ['npm', 'run', 'build'],
-    ['git', 'diff', '--exit-code', '--', 'package.json', 'package-lock.json'],
+    ['git', 'diff', '--exit-code', 'HEAD', '--', 'package.json', 'package-lock.json'],
   ],
   music: [unit('music', 'src/music', 'src/project', 'src/notation')],
   input: [unit('input', 'src/editor', 'src/App.test.tsx')],

@@ -85,6 +85,8 @@ jobs:
     name: Real browser engine edit and save
     needs: build
     runs-on: ubuntu-24.04
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:47b510dd9230bf0b9bfc9b20102241e577ea7a99334ab4c3ca19f19770e9b8ea
     timeout-minutes: 15
     env:
       MUSESCORE_WEB_OUTPUT: ${{ github.workspace }}/.cache/musescore-web
@@ -101,7 +103,12 @@ jobs:
         with:
           name: musescore-web-engine
           path: .cache/musescore-web
-      - run: npx playwright install --with-deps chromium
+      - name: Verify preinstalled Chromium
+        timeout-minutes: 2
+        uses: ./.github/actions/verify-browser
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
       - run: npx playwright test --config tests/wasm/playwright.config.ts
       - name: Upload staged runtime evidence and failed traces
         if: always()
